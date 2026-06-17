@@ -13,6 +13,7 @@ import {
 import { WalletUiIcon, useWalletUi, type UiWallet } from "@wallet-ui/react";
 import { useEffect, useState } from "react";
 import { orpc } from "../lib/orpc";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../components/ui/select";
 import { ED25519, advanceVectorDigest, createAdvanceInstruction, createInitializeEd25519, createPassthroughInstruction, findVectorPda } from "../lib/vector";
 import type { SwapOffer } from "../swaps/swapServer";
 import { appClusters, defaultCluster, type AppCluster } from "./clusters";
@@ -207,6 +208,10 @@ function SwapCard() {
         </div>
         <div className="flex flex-wrap gap-2">
           <ClusterSelector cluster={cluster} onClusterChange={setClusterId} />
+          {!isConnected ? <WalletSelector wallets={wallets} onConnect={(walletName, address) => {
+            setConnectedWalletName(walletName);
+            setConnectedAddress(address);
+          }} onError={setError} /> : null}
           {isConnected ? (
             <button
               className="rounded-xl bg-white px-4 py-2 text-sm font-semibold text-slate-950 transition hover:bg-violet-100"
@@ -222,11 +227,6 @@ function SwapCard() {
           ) : null}
         </div>
       </div>
-
-      {!isConnected ? <WalletConnector wallets={wallets} onConnect={(walletName, address) => {
-        setConnectedWalletName(walletName);
-        setConnectedAddress(address);
-      }} /> : null}
 
       <div className="grid gap-3">
         <InfoRow label="Make address" value={address ?? "Not connected"} mono />
@@ -381,83 +381,67 @@ function ClusterSelector({ cluster, onClusterChange }: { cluster: AppCluster; on
   );
 }
 
-function WalletConnector({ wallets, onConnect }: { wallets: UiWallet[]; onConnect: (walletName: string, address: string) => void }) {
-  if (!wallets.length) {
-    return <div className="mb-4 rounded-2xl border border-white/10 bg-black/20 p-4 text-sm text-slate-300">No Solana wallet extensions were detected. Install a Wallet Standard compatible extension or enable it for this site.</div>;
-  }
-
-  return (
-    <div className="mb-4 rounded-2xl border border-white/10 bg-black/20 p-4">
-      <p className="mb-3 text-sm font-medium text-slate-200">Select wallet</p>
-      <div className="grid gap-2">
-        {wallets.map((wallet) => wallet.features.includes("standard:connect") ? <StandardWalletButton key={wallet.name} wallet={wallet} onConnect={onConnect} /> : <LegacyWalletButton key={wallet.name} wallet={wallet} onConnect={onConnect} />)}
-      </div>
-    </div>
-  );
-}
-
-function StandardWalletButton({ wallet, onConnect }: { wallet: UiWallet; onConnect: (walletName: string, address: string) => void }) {
+function WalletSelector({ wallets, onConnect, onError }: { wallets: UiWallet[]; onConnect: (walletName: string, address: string) => void; onError: (error: string | undefined) => void }) {
   const [isConnecting, setIsConnecting] = useState(false);
-  const [error, setError] = useState<string>();
+  const [selectedWalletName, setSelectedWalletName] = useState("");
 
   return (
-    <button className="flex items-center justify-between gap-3 rounded-xl border border-white/10 bg-white/5 px-4 py-3 text-left transition hover:bg-white/10 disabled:cursor-wait disabled:opacity-60" disabled={isConnecting} type="button" onClick={async () => {
-      setError(undefined);
-      setIsConnecting(true);
-      try {
-        const standardWallet = getRegisteredWallet(wallet.name);
-        const connectFeature = standardWallet?.features[StandardConnect] as StandardConnectFeature[typeof StandardConnect] | undefined;
-        if (!standardWallet || !connectFeature) throw new Error("Wallet extension was detected, but its connect feature is unavailable. Refresh the page and try again.");
-        const result = await connectFeature.connect();
-        const account = result.accounts.find((account) => account.chains.some((chain) => chain.startsWith("solana:"))) ?? result.accounts[0];
-        if (!account?.address) throw new Error("The wallet did not return a Solana account.");
-        onConnect(wallet.name, account.address);
-      } catch (error) {
-        setError(error instanceof Error ? error.message : "Could not connect wallet.");
-      } finally {
-        setIsConnecting(false);
-      }
-    }}>
-      <WalletName wallet={wallet} detail={error ?? "Wallet Standard"} />
-      <span className="text-sm text-violet-200">{isConnecting ? "Connecting..." : "Connect"}</span>
-    </button>
+    <Select disabled={isConnecting || !wallets.length} value={selectedWalletName} onValueChange={async (walletName) => {
+        const wallet = wallets.find((walletOption) => walletOption.name === walletName);
+        if (!wallet) return;
+
+        setSelectedWalletName(walletName);
+        onError(undefined);
+        setIsConnecting(true);
+        try {
+          const address = wallet.features.includes("standard:connect") ? await connectStandardWallet(wallet) : await connectLegacyWallet(wallet);
+          onConnect(wallet.name, address);
+        } catch (error) {
+          onError(error instanceof Error ? error.message : "Could not connect wallet.");
+          setSelectedWalletName("");
+        } finally {
+          setIsConnecting(false);
+        }
+      }}>
+      <SelectTrigger className="h-auto rounded-xl border-white/10 bg-white px-4 py-2 text-sm font-semibold text-slate-950 shadow-none transition hover:bg-violet-100 disabled:cursor-not-allowed disabled:opacity-70">
+        <SelectValue placeholder={isConnecting ? "Connecting..." : wallets.length ? "Select wallet" : "No wallets"} />
+      </SelectTrigger>
+      <SelectContent className="border-white/10 bg-slate-950 text-white">
+        {wallets.map((wallet) => (
+          <SelectItem className="focus:bg-white/10 focus:text-white" key={wallet.name} value={wallet.name}>
+            <span className="flex items-center gap-2">
+              <WalletUiIcon className="size-5 rounded-full" wallet={wallet} />
+              <span>{wallet.name}</span>
+            </span>
+          </SelectItem>
+        ))}
+      </SelectContent>
+    </Select>
   );
 }
 
-function LegacyWalletButton({ wallet, onConnect }: { wallet: UiWallet; onConnect: (walletName: string, address: string) => void }) {
-  const [error, setError] = useState<string>();
+async function connectStandardWallet(wallet: UiWallet) {
+  const standardWallet = getRegisteredWallet(wallet.name);
+  const connectFeature = standardWallet?.features[StandardConnect] as StandardConnectFeature[typeof StandardConnect] | undefined;
+  if (!standardWallet || !connectFeature) throw new Error("Wallet extension was detected, but its connect feature is unavailable. Refresh the page and try again.");
+
+  const result = await connectFeature.connect();
+  const account = result.accounts.find((account) => account.chains.some((chain) => chain.startsWith("solana:"))) ?? result.accounts[0];
+  if (!account?.address) throw new Error("The wallet did not return a Solana account.");
+
+  return account.address;
+}
+
+async function connectLegacyWallet(wallet: UiWallet) {
   const provider = getLegacySolanaProvider(wallet.name);
+  if (!provider) throw new Error("Wallet extension is unavailable.");
 
-  return (
-    <button className="flex items-center justify-between gap-3 rounded-xl border border-white/10 bg-white/5 px-4 py-3 text-left transition hover:bg-white/10 disabled:cursor-not-allowed disabled:opacity-50" disabled={!provider} type="button" onClick={async () => {
-      if (!provider) return;
-      setError(undefined);
-      try {
-        const result = await provider.connect();
-        const publicKey = result?.publicKey ?? provider.publicKey;
-        const address = typeof publicKey === "string" ? publicKey : publicKey?.toString();
-        if (!address) throw new Error("The wallet did not return a public key.");
-        onConnect(wallet.name, address);
-      } catch (error) {
-        setError(error instanceof Error ? error.message : "Could not connect wallet.");
-      }
-    }}>
-      <WalletName wallet={wallet} detail={error ?? (provider ? "Extension fallback" : wallet.features.join(", ") || "Unavailable")} />
-      <span className="text-sm text-violet-200">{provider ? "Connect" : "Unavailable"}</span>
-    </button>
-  );
-}
+  const result = await provider.connect();
+  const publicKey = result?.publicKey ?? provider.publicKey;
+  const address = typeof publicKey === "string" ? publicKey : publicKey?.toString();
+  if (!address) throw new Error("The wallet did not return a public key.");
 
-function WalletName({ wallet, detail }: { wallet: UiWallet; detail: string }) {
-  return (
-    <span className="flex min-w-0 items-center gap-3">
-      <WalletUiIcon className="h-7 w-7 rounded-full" wallet={wallet} />
-      <span className="min-w-0">
-        <span className="block font-medium text-slate-100">{wallet.name}</span>
-        <span className="block truncate text-xs text-slate-400">{detail}</span>
-      </span>
-    </span>
-  );
+  return address;
 }
 
 function InfoRow({ label, value, mono }: { label: string; value: string; mono?: boolean }) {
