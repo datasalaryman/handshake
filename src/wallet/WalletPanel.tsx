@@ -98,8 +98,6 @@ function SwapCard() {
   const address = account?.address ?? connectedAddress;
   const cluster = appClusters.find((clusterOption) => clusterOption.id === clusterId) ?? defaultCluster;
   const isConnected = connected || Boolean(connectedAddress);
-  const makerIdentity = address ? new Address(address).toBytes() : undefined;
-  const vectorPda = makerIdentity ? findVectorPda(ED25519, makerIdentity)[0].toString() : "Connect wallet";
 
   useEffect(() => {
     if (connected) {
@@ -273,19 +271,14 @@ function SwapCard() {
 
       <div className="grid gap-3">
         <InfoRow label="Make address" value={address ?? "Not connected"} mono />
-        <InfoRow label="Maker Vector PDA" value={vectorPda} mono />
-      </div>
-
-      <div className="mt-5 rounded-2xl border border-amber-300/20 bg-amber-300/10 p-4 text-sm leading-6 text-amber-100">
-        Maker transfer uses Vector as the token-account delegate. Before sharing a link, approve the Maker Vector PDA as delegate for the maker send token account with at least the send amount.
       </div>
 
       <form className="mt-5 grid gap-4" onSubmit={(event) => event.preventDefault()}>
+        <Field label="Taker address" value={form.takerAddress} onChange={(takerAddress) => setForm((current) => ({ ...current, takerAddress }))} />
         <SwapSideCard title="Send">
           <TokenPickerButton token={makerSendToken} tokenAddress={form.makerSendTokenAddress} placeholder="Token" onClick={() => setTokenPickerMode("maker-send")} />
           <Field label="Amount to send" hideLabel value={form.makerSendAmount} onChange={(makerSendAmount) => setForm((current) => ({ ...current, makerSendAmount }))} inputMode="decimal" placeholder="0.00" />
         </SwapSideCard>
-        <Field label="Taker address" value={form.takerAddress} onChange={(takerAddress) => setForm((current) => ({ ...current, takerAddress }))} />
         <SwapSideCard title="Receive">
           <TokenPickerButton token={takerSendToken} tokenAddress={form.takerSendTokenAddress} placeholder="Token" onClick={() => setTokenPickerMode("taker-send")} />
           <Field label="Amount to receive" hideLabel value={form.takerSendAmount} onChange={(takerSendAmount) => setForm((current) => ({ ...current, takerSendAmount }))} inputMode="decimal" placeholder="0.00" />
