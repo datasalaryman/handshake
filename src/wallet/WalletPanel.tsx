@@ -10,8 +10,9 @@ import {
   type SolanaSignMessageFeature,
   type SolanaSignTransactionFeature,
 } from "@solana/wallet-standard-features";
+import { ChevronDown } from "lucide-react";
 import { WalletUiIcon, useWalletUi, type UiWallet } from "@wallet-ui/react";
-import { useEffect, useState } from "react";
+import { useDeferredValue, useEffect, useState } from "react";
 import { orpc } from "../lib/orpc";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../components/ui/select";
 import { ED25519, advanceVectorDigest, createAdvanceInstruction, createInitializeEd25519, createPassthroughInstruction, findVectorPda } from "../lib/vector";
@@ -27,11 +28,48 @@ type SwapFormState = {
   takerSendAmount: string;
 };
 
+type TokenSearchResult = {
+  address: string;
+  name: string;
+  symbol: string;
+  icon?: string;
+  decimals: number;
+  isVerified: boolean;
+  organicScore?: number;
+  organicScoreLabel?: "high" | "medium" | "low";
+  usdPrice?: number;
+  liquidity?: number;
+  mcap?: number;
+  isSus: boolean;
+};
+
+const solToken: TokenSearchResult = {
+  address: "So11111111111111111111111111111111111111112",
+  name: "Wrapped SOL",
+  symbol: "SOL",
+  icon: "https://raw.githubusercontent.com/solana-labs/token-list/main/assets/mainnet/So11111111111111111111111111111111111111112/logo.png",
+  decimals: 9,
+  isVerified: true,
+  organicScoreLabel: "high",
+  isSus: false,
+};
+
+const usdtToken: TokenSearchResult = {
+  address: "Es9vMFrzaCERmJfrF4H2FYD4GTGKTqGk53JTh2S",
+  name: "USDT",
+  symbol: "USDT",
+  icon: "https://raw.githubusercontent.com/solana-labs/token-list/main/assets/mainnet/Es9vMFrzaCERmJfrF4H2FYD4GTGKTqGk53JTh2S/logo.svg",
+  decimals: 6,
+  isVerified: true,
+  organicScoreLabel: "high",
+  isSus: false,
+};
+
 const defaultSwapForm: SwapFormState = {
-  makerSendTokenAddress: "",
+  makerSendTokenAddress: solToken.address,
   makerSendAmount: "",
   takerAddress: "",
-  takerSendTokenAddress: "",
+  takerSendTokenAddress: usdtToken.address,
   takerSendAmount: "",
 };
 
@@ -49,6 +87,9 @@ function SwapCard() {
   const [connectedWalletName, setConnectedWalletName] = useState<string>();
   const [connectedAddress, setConnectedAddress] = useState<string>();
   const [form, setForm] = useState<SwapFormState>(defaultSwapForm);
+  const [makerSendToken, setMakerSendToken] = useState<TokenSearchResult | undefined>(solToken);
+  const [takerSendToken, setTakerSendToken] = useState<TokenSearchResult | undefined>(usdtToken);
+  const [tokenPickerMode, setTokenPickerMode] = useState<"maker-send" | "taker-send">();
   const [loadedOffer, setLoadedOffer] = useState<SwapOffer>();
   const [generatedLink, setGeneratedLink] = useState<string>();
   const [status, setStatus] = useState<string>();
@@ -106,6 +147,8 @@ function SwapCard() {
           takerSendTokenAddress: offer.takerSendTokenAddress,
           takerSendAmount: offer.takerSendAmount,
         });
+        setMakerSendToken(undefined);
+        setTakerSendToken(undefined);
         setStatus("Loaded maker-signed swap offer.");
       } catch (error) {
         setError(error instanceof Error ? error.message : "Could not load swap offer.");
@@ -238,12 +281,27 @@ function SwapCard() {
       </div>
 
       <form className="mt-5 grid gap-4" onSubmit={(event) => event.preventDefault()}>
-        <Field label="Token address to send" value={form.makerSendTokenAddress} onChange={(makerSendTokenAddress) => setForm((current) => ({ ...current, makerSendTokenAddress }))} />
-        <Field label="Amount to send" value={form.makerSendAmount} onChange={(makerSendAmount) => setForm((current) => ({ ...current, makerSendAmount }))} inputMode="decimal" />
+        <SwapSideCard title="Send">
+          <TokenPickerButton token={makerSendToken} tokenAddress={form.makerSendTokenAddress} placeholder="Token" onClick={() => setTokenPickerMode("maker-send")} />
+          <Field label="Amount to send" hideLabel value={form.makerSendAmount} onChange={(makerSendAmount) => setForm((current) => ({ ...current, makerSendAmount }))} inputMode="decimal" placeholder="0.00" />
+        </SwapSideCard>
         <Field label="Taker address" value={form.takerAddress} onChange={(takerAddress) => setForm((current) => ({ ...current, takerAddress }))} />
-        <Field label="Token address to receive" value={form.takerSendTokenAddress} onChange={(takerSendTokenAddress) => setForm((current) => ({ ...current, takerSendTokenAddress }))} />
-        <Field label="Amount to receive" value={form.takerSendAmount} onChange={(takerSendAmount) => setForm((current) => ({ ...current, takerSendAmount }))} inputMode="decimal" />
+        <SwapSideCard title="Receive">
+          <TokenPickerButton token={takerSendToken} tokenAddress={form.takerSendTokenAddress} placeholder="Token" onClick={() => setTokenPickerMode("taker-send")} />
+          <Field label="Amount to receive" hideLabel value={form.takerSendAmount} onChange={(takerSendAmount) => setForm((current) => ({ ...current, takerSendAmount }))} inputMode="decimal" placeholder="0.00" />
+        </SwapSideCard>
       </form>
+
+      {tokenPickerMode ? <TokenPickerModal selectedToken={tokenPickerMode === "maker-send" ? makerSendToken : takerSendToken} title={tokenPickerMode === "maker-send" ? "Select token to send" : "Select token to receive"} onClose={() => setTokenPickerMode(undefined)} onSelect={(token) => {
+        if (tokenPickerMode === "maker-send") {
+          setMakerSendToken(token);
+          setForm((current) => ({ ...current, makerSendTokenAddress: token.address }));
+        } else {
+          setTakerSendToken(token);
+          setForm((current) => ({ ...current, takerSendTokenAddress: token.address }));
+        }
+        setTokenPickerMode(undefined);
+      }} /> : null}
 
       <div className="mt-5 grid gap-3 sm:grid-cols-3">
         <ActionButton disabled={busy || !isConnected} onClick={() => void initializeVectorAccount()}>Initialize Vector</ActionButton>
@@ -346,20 +404,173 @@ async function signAndSendWalletTransaction(walletName: string | undefined, tx: 
   throw new Error("Connected wallet does not expose Solana transaction signing.");
 }
 
-function Field({ label, value, onChange, inputMode }: { label: string; value: string; onChange: (value: string) => void; inputMode?: "decimal" }) {
+function Field({ label, value, onChange, inputMode, placeholder, hideLabel }: { label: string; value: string; onChange: (value: string) => void; inputMode?: "decimal"; placeholder?: string; hideLabel?: boolean }) {
   const id = label.toLowerCase().replaceAll(" ", "-");
   return (
     <label className="grid gap-2 text-sm text-slate-200" htmlFor={id}>
-      {label}
+      <span className={hideLabel ? "sr-only" : undefined}>{label}</span>
       <input
-        className="rounded-xl border border-white/10 bg-black/30 px-4 py-3 font-mono text-sm text-white outline-none transition placeholder:text-slate-500 focus:border-violet-300/60"
+        className="h-full min-h-12 rounded-xl border border-white/10 bg-black/30 px-4 py-3 font-mono text-sm text-white outline-none transition placeholder:text-slate-500 focus:border-violet-300/60"
         id={id}
         inputMode={inputMode}
+        placeholder={placeholder}
         value={value}
         onChange={(event) => onChange(event.target.value)}
       />
     </label>
   );
+}
+
+function SwapSideCard({ title, children }: { title: string; children: React.ReactNode }) {
+  return (
+    <section className="rounded-3xl border border-white/10 bg-black/20 p-4">
+      <h3 className="text-lg font-semibold text-white">{title}</h3>
+      <div className="mt-3 grid gap-3 sm:grid-cols-[0.7fr_1fr]">{children}</div>
+    </section>
+  );
+}
+
+function TokenPickerButton({ token, tokenAddress, placeholder, onClick }: { token: TokenSearchResult | undefined; tokenAddress: string; placeholder: string; onClick: () => void }) {
+  return (
+    <div>
+      <button className="flex min-h-10 w-full items-center justify-between gap-2 rounded-xl border border-white/10 bg-white/[0.06] px-2.5 py-1.5 text-left outline-none transition hover:border-violet-300/50 hover:bg-white/[0.1] focus:border-violet-300/60" type="button" onClick={onClick}>
+        {token ? (
+          <span className="flex min-w-0 items-center gap-2">
+            <TokenIcon token={token} compact />
+            <span className="min-w-0">
+              <span className="block truncate text-sm font-semibold text-white">{token.symbol}</span>
+            </span>
+          </span>
+        ) : tokenAddress ? (
+          <span className="min-w-0">
+            <span className="block truncate font-mono text-xs text-white">{abbreviateAddress(tokenAddress)}</span>
+          </span>
+        ) : (
+          <span className="text-sm font-semibold text-slate-200">{placeholder}</span>
+        )}
+        <ChevronDown className="size-4 shrink-0 text-slate-400" />
+      </button>
+    </div>
+  );
+}
+
+function TokenPickerModal({ selectedToken, title, onClose, onSelect }: { selectedToken: TokenSearchResult | undefined; title: string; onClose: () => void; onSelect: (token: TokenSearchResult) => void }) {
+  const [query, setQuery] = useState(selectedToken?.symbol ?? selectedToken?.address ?? "SOL");
+  const deferredQuery = useDeferredValue(query);
+  const [results, setResults] = useState<TokenSearchResult[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string>();
+
+  useEffect(() => {
+    const trimmedQuery = deferredQuery.trim();
+    if (!trimmedQuery) {
+      setResults([]);
+      return;
+    }
+
+    let cancelled = false;
+    setLoading(true);
+    setError(undefined);
+
+    async function searchTokens() {
+      try {
+        const tokens = await orpc.tokens.search({ query: trimmedQuery });
+        if (!cancelled) setResults(tokens as TokenSearchResult[]);
+      } catch (error) {
+        if (!cancelled) setError(error instanceof Error ? error.message : "Could not search tokens.");
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    }
+
+    const timeout = window.setTimeout(searchTokens, 180);
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timeout);
+    };
+  }, [deferredQuery]);
+
+  useEffect(() => {
+    function closeOnEscape(event: KeyboardEvent) {
+      if (event.key === "Escape") onClose();
+    }
+
+    window.addEventListener("keydown", closeOnEscape);
+    return () => window.removeEventListener("keydown", closeOnEscape);
+  }, [onClose]);
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/70 p-4 backdrop-blur-sm sm:items-center" role="dialog" aria-modal="true" aria-labelledby="token-picker-title" onMouseDown={(event) => {
+      if (event.target === event.currentTarget) onClose();
+    }}>
+      <div className="w-full max-w-lg overflow-hidden rounded-3xl border border-white/10 bg-[#0b0d16] shadow-2xl shadow-black/50" onMouseDown={(event) => event.stopPropagation()}>
+        <div className="flex items-center justify-between border-b border-white/10 p-5">
+          <h3 className="text-lg font-semibold text-white" id="token-picker-title">{title}</h3>
+          <button className="rounded-full border border-white/10 px-3 py-1 text-sm text-slate-300 transition hover:bg-white/10" type="button" onClick={onClose}>Close</button>
+        </div>
+        <div className="p-5">
+          <label className="grid gap-2 text-sm text-slate-200" htmlFor="token-search">
+            Search by token name, symbol, or address
+            <input
+              autoFocus
+              className="rounded-2xl border border-white/10 bg-black/30 px-4 py-3 text-base text-white outline-none transition placeholder:text-slate-500 focus:border-violet-300/60"
+              id="token-search"
+              placeholder="SOL, USDC, Jupiter, or mint address"
+              value={query}
+              onChange={(event) => setQuery(event.target.value)}
+            />
+          </label>
+
+          <div className="mt-4 max-h-[420px] overflow-y-auto pr-1">
+            {loading ? <p className="rounded-2xl border border-white/10 bg-white/5 p-4 text-sm text-slate-300">Searching Jupiter tokens...</p> : null}
+            {error ? <p className="rounded-2xl border border-red-300/20 bg-red-300/10 p-4 text-sm text-red-100">{error}</p> : null}
+            {!loading && !error && results.length === 0 ? <p className="rounded-2xl border border-white/10 bg-white/5 p-4 text-sm text-slate-300">No tokens found.</p> : null}
+            <div className="grid gap-2">
+              {results.map((token) => (
+                <button className="flex items-center justify-between gap-3 rounded-2xl border border-white/10 bg-white/[0.03] p-3 text-left transition hover:border-violet-300/50 hover:bg-white/[0.08]" key={token.address} type="button" onClick={() => onSelect(token)}>
+                  <span className="flex min-w-0 items-center gap-3">
+                    <TokenIcon token={token} />
+                    <span className="min-w-0">
+                      <span className="flex items-center gap-2">
+                        <span className="truncate font-semibold text-white">{token.symbol}</span>
+                        {token.isVerified ? <span className="rounded-full bg-emerald-300/15 px-2 py-0.5 text-[11px] font-semibold text-emerald-100">Verified</span> : null}
+                      </span>
+                      <span className="block truncate text-sm text-slate-300">{token.name}</span>
+                      <span className="block truncate font-mono text-xs text-slate-500">{abbreviateAddress(token.address)}</span>
+                    </span>
+                  </span>
+                  <span className="shrink-0 text-right text-xs text-slate-400">
+                    {token.usdPrice ? <span className="block text-slate-200">{formatUsd(token.usdPrice)}</span> : null}
+                    {token.organicScoreLabel ? <span className="block capitalize">{token.organicScoreLabel} score</span> : null}
+                  </span>
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function TokenIcon({ token, compact }: { token: TokenSearchResult; compact?: boolean }) {
+  const sizeClassName = compact ? "size-6" : "size-10";
+
+  if (token.icon) {
+    return <img alt="" className={`${sizeClassName} rounded-full bg-white/10 object-cover`} src={token.icon} />;
+  }
+
+  return <span className={`${sizeClassName} flex items-center justify-center rounded-full bg-violet-200 text-xs font-semibold text-slate-950`}>{token.symbol.slice(0, 2).toUpperCase()}</span>;
+}
+
+function abbreviateAddress(address: string) {
+  if (address.length <= 12) return address;
+  return `${address.slice(0, 4)}...${address.slice(-4)}`;
+}
+
+function formatUsd(value: number) {
+  if (value >= 1) return `$${value.toLocaleString(undefined, { maximumFractionDigits: 2 })}`;
+  return `$${value.toLocaleString(undefined, { maximumSignificantDigits: 3 })}`;
 }
 
 function ActionButton({ children, disabled, onClick }: { children: string; disabled: boolean; onClick: () => void }) {

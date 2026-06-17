@@ -1,5 +1,6 @@
 import { os } from "@orpc/server";
 import { z } from "zod";
+import { searchJupiterTokens } from "../tokens/jupiter";
 import { createSwapOffer, getSwapOffer, markSwapSubmitted } from "./swapServer";
 
 const nonEmptyString = z.string().trim().min(1);
@@ -26,6 +27,11 @@ export const swapOffersRouter = {
   markSubmitted: os.input(markSwapSubmittedInput).handler(({ input }) => markSwapSubmitted(input)),
 };
 
+export const tokensRouter = {
+  search: os.input(z.object({ query: z.string().trim().max(120) })).handler(({ input }) => searchJupiterTokens(input.query)),
+};
+
 export const appRouter = {
   swapOffers: swapOffersRouter,
+  tokens: tokensRouter,
 };
