@@ -4,7 +4,7 @@ import react from "@vitejs/plugin-react";
 import { defineConfig } from "vite";
 
 export default defineConfig({
-  envPrefix: ["VITE_", "BUN_PUBLIC_", "RPC_URL"],
+  envPrefix: ["VITE_", "BUN_PUBLIC_", "RPC_URL", "VECTOR_PROGRAM"],
   server: {
     port: 3000,
   },
