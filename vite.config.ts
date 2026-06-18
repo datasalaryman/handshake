@@ -9,6 +9,7 @@ export default defineConfig({
   resolve: {
     alias: {
       "@": fileURLToPath(new URL("./src", import.meta.url)),
+      crypto: fileURLToPath(new URL("./src/lib/nodeCryptoShim.ts", import.meta.url)),
     },
   },
   server: {
