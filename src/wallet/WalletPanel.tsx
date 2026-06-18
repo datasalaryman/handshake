@@ -1,4 +1,4 @@
-import { Address, Connection, Transaction } from "@solana/web3.js";
+import { Address, Connection, Transaction, type TransactionSignature } from "@solana/web3.js";
 import { getAssociatedTokenAddressSync, getMint, createTransferCheckedInstruction } from "@solana/spl-token";
 import { getWallets } from "@wallet-standard/app";
 import { StandardConnect, type StandardConnectFeature } from "@wallet-standard/features";
@@ -73,15 +73,15 @@ const defaultSwapForm: SwapFormState = {
   takerSendAmount: "",
 };
 
-export function WalletPanel() {
+export function WalletPanel({ swapId }: { swapId?: string }) {
   return (
     <SolanaProvider>
-      <SwapCard />
+      <SwapCard swapId={swapId} />
     </SolanaProvider>
   );
 }
 
-function SwapCard() {
+function SwapCard({ swapId }: { swapId?: string }) {
   const { account, connected, disconnect, wallets } = useWalletUi();
   const [clusterId, setClusterId] = useState<AppCluster["id"]>(defaultCluster.id);
   const [connectedWalletName, setConnectedWalletName] = useState<string>();
@@ -98,6 +98,7 @@ function SwapCard() {
   const address = account?.address ?? connectedAddress;
   const cluster = appClusters.find((clusterOption) => clusterOption.id === clusterId) ?? defaultCluster;
   const isConnected = connected || Boolean(connectedAddress);
+  const isSwapLink = Boolean(swapId);
 
   useEffect(() => {
     if (connected) {
@@ -129,7 +130,6 @@ function SwapCard() {
   }, [connectedWalletName]);
 
   useEffect(() => {
-    const swapId = new URLSearchParams(window.location.search).get("swap");
     if (!swapId) return;
     const id = swapId;
 
@@ -154,26 +154,7 @@ function SwapCard() {
     }
 
     void loadSwap();
-  }, []);
-
-  async function initializeVectorAccount() {
-    if (!address) throw new Error("Connect the maker wallet first.");
-    setBusy(true);
-    setError(undefined);
-    setStatus("Preparing Vector account initialization...");
-
-    try {
-      const connection = new Connection(cluster.url, "confirmed");
-      const makerAddress = new Address(address);
-      const tx = new Transaction({ ...(await connection.getLatestBlockhash()), feePayer: makerAddress }).add(createInitializeEd25519(makerAddress, makerAddress.toBytes()));
-      const signature = await signAndSendWalletTransaction(connectedWalletName, tx, cluster, connection);
-      setStatus(`Vector account initialized: ${signature}`);
-    } catch (error) {
-      setError(error instanceof Error ? error.message : "Could not initialize Vector account.");
-    } finally {
-      setBusy(false);
-    }
-  }
+  }, [swapId]);
 
   async function createMakerSignedLink() {
     if (!address) throw new Error("Connect the maker wallet first.");
@@ -185,6 +166,7 @@ function SwapCard() {
       const makerAddress = new Address(address);
       const takerAddress = new Address(form.takerAddress);
       const connection = new Connection(cluster.url, "confirmed");
+      await ensureVectorAccountInitialized(connection, makerAddress, connectedWalletName, cluster, setStatus);
       const { passthroughIx, digest } = await buildSwapAuthorization(connection, makerAddress, form);
       const vectorSignature = await signWalletMessage(connectedWalletName, makerAddress.toString(), digest);
       createAdvanceInstruction(ED25519, makerAddress.toBytes(), vectorSignature);
@@ -200,8 +182,7 @@ function SwapCard() {
         vectorSignature: bytesToBase64(vectorSignature),
       });
 
-      const link = new URL(window.location.href);
-      link.searchParams.set("swap", offer.id);
+      const link = new URL(`/swap/${offer.id}`, window.location.origin);
       setGeneratedLink(link.toString());
       setLoadedOffer({ ...offer, vectorSignature: bytesToBase64(vectorSignature) });
       setStatus(`Maker signed the Vector digest for ${passthroughIx.keys.length} passthrough accounts. Link is ready for the taker.`);
@@ -224,9 +205,9 @@ function SwapCard() {
       const connection = new Connection(cluster.url, "confirmed");
       const makerAddress = new Address(loadedOffer.makerAddress);
       const takerAddress = new Address(loadedOffer.takerAddress);
-      const { passthroughIx } = await buildSwapAuthorization(connection, makerAddress, loadedOffer);
+      const { passthroughIx, takerTransferIx } = await buildSwapAuthorization(connection, makerAddress, loadedOffer);
       const advanceIx = createAdvanceInstruction(ED25519, makerAddress.toBytes(), base64ToBytes(loadedOffer.vectorSignature));
-      const tx = new Transaction({ ...(await connection.getLatestBlockhash()), feePayer: takerAddress }).add(advanceIx, passthroughIx);
+      const tx = new Transaction({ ...(await connection.getLatestBlockhash()), feePayer: takerAddress }).add(advanceIx, passthroughIx, takerTransferIx);
 
       await simulateTransaction(connection, tx);
       const signature = await signAndSendWalletTransaction(connectedWalletName, tx, cluster, connection);
@@ -245,7 +226,7 @@ function SwapCard() {
       <div className="mb-6 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <p className="text-sm uppercase tracking-[0.24em] text-violet-200/70">Peer swap</p>
-          <h2 className="mt-1 text-2xl font-semibold">Vector-signed token exchange</h2>
+          <h2 className="mt-1 text-2xl font-semibold">{isSwapLink ? "Take Vector-signed swap" : "Vector-signed token exchange"}</h2>
         </div>
         <div className="flex flex-wrap gap-2">
           <ClusterSelector cluster={cluster} onClusterChange={setClusterId} />
@@ -270,20 +251,24 @@ function SwapCard() {
       </div>
 
       <div className="grid gap-3">
-        <InfoRow label="Make address" value={address ?? "Not connected"} mono />
+        <InfoRow label={isSwapLink ? "Connected taker address" : "Maker address"} value={address ?? "Not connected"} mono />
       </div>
 
-      <form className="mt-5 grid gap-4" onSubmit={(event) => event.preventDefault()}>
-        <Field label="Taker address" value={form.takerAddress} onChange={(takerAddress) => setForm((current) => ({ ...current, takerAddress }))} />
-        <SwapSideCard title="Send">
-          <TokenPickerButton token={makerSendToken} tokenAddress={form.makerSendTokenAddress} placeholder="Token" onClick={() => setTokenPickerMode("maker-send")} />
-          <Field label="Amount to send" hideLabel value={form.makerSendAmount} onChange={(makerSendAmount) => setForm((current) => ({ ...current, makerSendAmount }))} inputMode="decimal" placeholder="0.00" />
-        </SwapSideCard>
-        <SwapSideCard title="Receive">
-          <TokenPickerButton token={takerSendToken} tokenAddress={form.takerSendTokenAddress} placeholder="Token" onClick={() => setTokenPickerMode("taker-send")} />
-          <Field label="Amount to receive" hideLabel value={form.takerSendAmount} onChange={(takerSendAmount) => setForm((current) => ({ ...current, takerSendAmount }))} inputMode="decimal" placeholder="0.00" />
-        </SwapSideCard>
-      </form>
+      {isSwapLink ? (
+        <SwapDetails offer={loadedOffer} />
+      ) : (
+        <form className="mt-5 grid gap-4" onSubmit={(event) => event.preventDefault()}>
+          <Field label="Taker address" value={form.takerAddress} onChange={(takerAddress) => setForm((current) => ({ ...current, takerAddress }))} />
+          <SwapSideCard title="Send">
+            <TokenPickerButton token={makerSendToken} tokenAddress={form.makerSendTokenAddress} placeholder="Token" onClick={() => setTokenPickerMode("maker-send")} />
+            <Field label="Amount to send" hideLabel value={form.makerSendAmount} onChange={(makerSendAmount) => setForm((current) => ({ ...current, makerSendAmount }))} inputMode="decimal" placeholder="0.00" />
+          </SwapSideCard>
+          <SwapSideCard title="Receive">
+            <TokenPickerButton token={takerSendToken} tokenAddress={form.takerSendTokenAddress} placeholder="Token" onClick={() => setTokenPickerMode("taker-send")} />
+            <Field label="Amount to receive" hideLabel value={form.takerSendAmount} onChange={(takerSendAmount) => setForm((current) => ({ ...current, takerSendAmount }))} inputMode="decimal" placeholder="0.00" />
+          </SwapSideCard>
+        </form>
+      )}
 
       {tokenPickerMode ? <TokenPickerModal selectedToken={tokenPickerMode === "maker-send" ? makerSendToken : takerSendToken} title={tokenPickerMode === "maker-send" ? "Select token to send" : "Select token to receive"} onClose={() => setTokenPickerMode(undefined)} onSelect={(token) => {
         if (tokenPickerMode === "maker-send") {
@@ -296,10 +281,12 @@ function SwapCard() {
         setTokenPickerMode(undefined);
       }} /> : null}
 
-      <div className="mt-5 grid gap-3 sm:grid-cols-3">
-        <ActionButton disabled={busy || !isConnected} onClick={() => void initializeVectorAccount()}>Initialize Vector</ActionButton>
-        <ActionButton disabled={busy || !isConnected} onClick={() => void createMakerSignedLink()}>Maker sign link</ActionButton>
-        <ActionButton disabled={busy || !isConnected || !loadedOffer} onClick={() => void executeLoadedSwap()}>Taker sign and send</ActionButton>
+      <div className="mt-5 grid gap-3">
+        {isSwapLink ? (
+          <ActionButton disabled={busy || !isConnected || !loadedOffer || loadedOffer.status === "submitted"} onClick={() => void executeLoadedSwap()}>Take swap</ActionButton>
+        ) : (
+          <ActionButton disabled={busy || !isConnected} onClick={() => void createMakerSignedLink()}>Create swap link</ActionButton>
+        )}
       </div>
 
       {generatedLink ? <InfoRow label="Generated link" value={generatedLink} mono /> : null}
@@ -307,6 +294,17 @@ function SwapCard() {
       {error ? <p className="mt-4 rounded-2xl border border-red-300/20 bg-red-300/10 p-4 text-sm text-red-100">{error}</p> : null}
     </div>
   );
+}
+
+async function ensureVectorAccountInitialized(connection: Connection, makerAddress: Address, walletName: string | undefined, cluster: AppCluster, setStatus: (status: string) => void) {
+  const [makerVectorPda] = findVectorPda(ED25519, makerAddress.toBytes());
+  const existingVectorAccount = await connection.getAccountInfo(makerVectorPda);
+  if (existingVectorAccount) return;
+
+  setStatus("Initializing maker Vector account...");
+  const tx = new Transaction({ ...(await connection.getLatestBlockhash()), feePayer: makerAddress }).add(createInitializeEd25519(makerAddress, makerAddress.toBytes()));
+  const signature = await signAndSendWalletTransaction(walletName, tx, cluster, connection);
+  await confirmTransaction(connection, signature);
 }
 
 async function buildSwapAuthorization(connection: Connection, makerAddress: Address, form: SwapFormState | SwapOffer) {
@@ -321,16 +319,16 @@ async function buildSwapAuthorization(connection: Connection, makerAddress: Addr
   const takerSendMintInfo = await getMint(connection, takerSendMint);
   const makerSendAmount = parseTokenAmount(form.makerSendAmount, makerSendMintInfo.decimals);
   const takerSendAmount = parseTokenAmount(form.takerSendAmount, takerSendMintInfo.decimals);
-  const makerSendSource = getAssociatedTokenAddressSync(makerSendMint, makerAddress);
+  const makerSendSource = getAssociatedTokenAddressSync(makerSendMint, makerVectorPda, true);
   const makerSendDestination = getAssociatedTokenAddressSync(makerSendMint, takerAddress);
   const takerSendSource = getAssociatedTokenAddressSync(takerSendMint, takerAddress);
-  const takerSendDestination = getAssociatedTokenAddressSync(takerSendMint, makerAddress);
+  const takerSendDestination = getAssociatedTokenAddressSync(takerSendMint, makerVectorPda, true);
   const makerTransfer = createTransferCheckedInstruction(makerSendSource, makerSendMint, makerSendDestination, makerVectorPda, makerSendAmount, makerSendMintInfo.decimals);
   const takerTransfer = createTransferCheckedInstruction(takerSendSource, takerSendMint, takerSendDestination, takerAddress, takerSendAmount, takerSendMintInfo.decimals);
-  const passthroughIx = createPassthroughInstruction(ED25519, makerAddress.toBytes(), [makerTransfer, takerTransfer]);
-  const digest = advanceVectorDigest(ED25519, vectorAccount.data.slice(0, 32), makerAddress.toBytes(), [], [passthroughIx], takerAddress);
+  const passthroughIx = createPassthroughInstruction(ED25519, makerAddress.toBytes(), [makerTransfer]);
+  const digest = advanceVectorDigest(ED25519, vectorAccount.data.slice(0, 32), makerAddress.toBytes(), [], [passthroughIx, takerTransfer], takerAddress);
 
-  return { passthroughIx, digest };
+  return { passthroughIx, takerTransferIx: takerTransfer, digest };
 }
 
 function parseTokenAmount(amount: string, decimals: number) {
@@ -344,6 +342,12 @@ function parseTokenAmount(amount: string, decimals: number) {
 async function simulateTransaction(connection: Connection, tx: Transaction) {
   const result = await connection.simulateTransaction(tx);
   if (result.value.err) throw new Error(`Simulation failed: ${JSON.stringify(result.value.err)}`);
+}
+
+async function confirmTransaction(connection: Connection, signature: TransactionSignature) {
+  if (!signature || signature.length < 80) return;
+  const blockhash = await connection.getLatestBlockhash();
+  await connection.confirmTransaction({ signature, ...blockhash }, "confirmed");
 }
 
 async function signWalletMessage(walletName: string | undefined, address: string, message: Uint8Array) {
@@ -374,7 +378,7 @@ async function signAndSendWalletTransaction(walletName: string | undefined, tx: 
   if (signAndSendFeature && account) {
     const [result] = await signAndSendFeature.signAndSendTransaction({ account, transaction: serialized, chain, options: { commitment: "confirmed" } });
     if (!result?.signature) throw new Error("Wallet did not return a transaction signature.");
-    return bytesToBase64(result.signature);
+    return bytesToBase58(result.signature);
   }
 
   const signFeature = standardWallet?.features[SolanaSignTransaction] as SolanaSignTransactionFeature[typeof SolanaSignTransaction] | undefined;
@@ -420,6 +424,40 @@ function SwapSideCard({ title, children }: { title: string; children: React.Reac
       <h3 className="text-lg font-semibold text-white">{title}</h3>
       <div className="mt-3 grid gap-3 sm:grid-cols-[0.7fr_1fr]">{children}</div>
     </section>
+  );
+}
+
+function SwapDetails({ offer }: { offer: SwapOffer | undefined }) {
+  if (!offer) {
+    return <p className="mt-5 rounded-2xl border border-white/10 bg-white/5 p-4 text-sm text-slate-300">Loading swap details...</p>;
+  }
+
+  return (
+    <div className="mt-5 grid gap-4">
+      <InfoRow label="Maker address" value={offer.makerAddress} mono />
+      <InfoRow label="Taker address" value={offer.takerAddress} mono />
+      <SwapSideCard title="Maker sends">
+        <ReadOnlyValue label="Token sent" value={offer.makerSendTokenAddress} mono />
+        <ReadOnlyValue label="Amount" value={offer.makerSendAmount} />
+      </SwapSideCard>
+      <SwapSideCard title="Taker sends">
+        <ReadOnlyValue label="Token sent" value={offer.takerSendTokenAddress} mono />
+        <ReadOnlyValue label="Amount" value={offer.takerSendAmount} />
+      </SwapSideCard>
+      <SwapSideCard title="Swap details">
+        <ReadOnlyValue label="Maker receives token" value={offer.takerSendTokenAddress} mono />
+        <ReadOnlyValue label="Taker receives token" value={offer.makerSendTokenAddress} mono />
+      </SwapSideCard>
+    </div>
+  );
+}
+
+function ReadOnlyValue({ label, value, mono }: { label: string; value: string; mono?: boolean }) {
+  return (
+    <div className="rounded-xl border border-white/10 bg-black/30 px-4 py-3">
+      <p className="text-xs font-medium uppercase tracking-[0.18em] text-slate-500">{label}</p>
+      <p className={`mt-2 break-all ${mono ? "font-mono text-sm" : "text-base font-semibold"} text-white`}>{value}</p>
+    </div>
   );
 }
 
@@ -713,4 +751,30 @@ function bytesToBase64(bytes: Uint8Array) {
 
 function base64ToBytes(base64: string) {
   return Uint8Array.from(atob(base64), (char) => char.charCodeAt(0));
+}
+
+function bytesToBase58(bytes: Uint8Array) {
+  const alphabet = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz";
+  const digits = [0];
+
+  for (const byte of bytes) {
+    let carry = byte;
+    for (let i = 0; i < digits.length; i++) {
+      carry += digits[i]! << 8;
+      digits[i] = carry % 58;
+      carry = Math.floor(carry / 58);
+    }
+    while (carry > 0) {
+      digits.push(carry % 58);
+      carry = Math.floor(carry / 58);
+    }
+  }
+
+  let result = "";
+  for (const byte of bytes) {
+    if (byte !== 0) break;
+    result += alphabet[0];
+  }
+  for (let i = digits.length - 1; i >= 0; i--) result += alphabet[digits[i]!];
+  return result;
 }
