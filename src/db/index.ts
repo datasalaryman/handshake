@@ -19,9 +19,7 @@ export function getDb() {
     user: decodeURIComponent(parsedDatabaseUrl.username),
     password: decodeURIComponent(parsedDatabaseUrl.password),
     database: parsedDatabaseUrl.pathname.replace(/^\//, ""),
-    ssl: {
-      rejectUnauthorized: true,
-    },
+    ssl: process.env.DATABASE_SSL === "false" ? false : { rejectUnauthorized: true },
   });
 
   dbClient = drizzle(pool, { schema });

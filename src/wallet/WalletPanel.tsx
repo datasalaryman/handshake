@@ -1,4 +1,4 @@
-import { Address, Connection, Transaction, type TransactionSignature } from "@solana/web3.js";
+import { Address, Connection, SystemProgram, Transaction, type TransactionSignature } from "@solana/web3.js";
 import { getAssociatedTokenAddressSync, getMint, createTransferCheckedInstruction } from "@solana/spl-token";
 import { getWallets } from "@wallet-standard/app";
 import { StandardConnect, type StandardConnectFeature } from "@wallet-standard/features";
@@ -44,22 +44,22 @@ type TokenSearchResult = {
 };
 
 const solToken: TokenSearchResult = {
-  address: "So11111111111111111111111111111111111111112",
-  name: "Wrapped SOL",
-  symbol: "SOL",
+  address: import.meta.env.BUN_PUBLIC_DEFAULT_MAKER_SEND_TOKEN_ADDRESS ?? "So11111111111111111111111111111111111111112",
+  name: import.meta.env.BUN_PUBLIC_DEFAULT_MAKER_SEND_TOKEN_NAME ?? "Wrapped SOL",
+  symbol: import.meta.env.BUN_PUBLIC_DEFAULT_MAKER_SEND_TOKEN_SYMBOL ?? "SOL",
   icon: "https://raw.githubusercontent.com/solana-labs/token-list/main/assets/mainnet/So11111111111111111111111111111111111111112/logo.png",
-  decimals: 9,
+  decimals: Number(import.meta.env.BUN_PUBLIC_DEFAULT_MAKER_SEND_TOKEN_DECIMALS ?? 9),
   isVerified: true,
   organicScoreLabel: "high",
   isSus: false,
 };
 
 const usdtToken: TokenSearchResult = {
-  address: "Es9vMFrzaCERmJfrF4H2FYD4GTGKTqGk53JTh2S",
-  name: "USDT",
-  symbol: "USDT",
+  address: import.meta.env.BUN_PUBLIC_DEFAULT_TAKER_SEND_TOKEN_ADDRESS ?? "Es9vMFrzaCERmJfrF4H2FYD4GTGKTqGk53JTh2S",
+  name: import.meta.env.BUN_PUBLIC_DEFAULT_TAKER_SEND_TOKEN_NAME ?? "USDT",
+  symbol: import.meta.env.BUN_PUBLIC_DEFAULT_TAKER_SEND_TOKEN_SYMBOL ?? "USDT",
   icon: "https://raw.githubusercontent.com/solana-labs/token-list/main/assets/mainnet/Es9vMFrzaCERmJfrF4H2FYD4GTGKTqGk53JTh2S/logo.svg",
-  decimals: 6,
+  decimals: Number(import.meta.env.BUN_PUBLIC_DEFAULT_TAKER_SEND_TOKEN_DECIMALS ?? 6),
   isVerified: true,
   organicScoreLabel: "high",
   isSus: false,
@@ -297,14 +297,27 @@ function SwapCard({ swapId }: { swapId?: string }) {
 }
 
 async function ensureVectorAccountInitialized(connection: Connection, makerAddress: Address, walletName: string | undefined, cluster: AppCluster, setStatus: (status: string) => void) {
+  await assertVectorProgramDeployed(connection);
   const [makerVectorPda] = findVectorPda(ED25519, makerAddress.toBytes());
   const existingVectorAccount = await connection.getAccountInfo(makerVectorPda);
   if (existingVectorAccount) return;
 
   setStatus("Initializing maker Vector account...");
-  const tx = new Transaction({ ...(await connection.getLatestBlockhash()), feePayer: makerAddress }).add(createInitializeEd25519(makerAddress, makerAddress.toBytes()));
+  const rentTopUpLamports = Number(await connection.getMinimumBalanceForRentExemption(64));
+  const tx = new Transaction({ ...(await connection.getLatestBlockhash()), feePayer: makerAddress }).add(
+    createInitializeEd25519(makerAddress, makerAddress.toBytes()),
+    SystemProgram.transfer({ fromPubkey: makerAddress, toPubkey: makerVectorPda, lamports: rentTopUpLamports }),
+  );
+  await simulateTransaction(connection, tx);
   const signature = await signAndSendWalletTransaction(walletName, tx, cluster, connection);
   await confirmTransaction(connection, signature);
+}
+
+async function assertVectorProgramDeployed(connection: Connection) {
+  const programAccount = await connection.getAccountInfo(ED25519.programId);
+  if (!programAccount?.executable) {
+    throw new Error(`Vector program is not deployed on this RPC. Run: bun run surfnet:deploy-vector`);
+  }
 }
 
 async function buildSwapAuthorization(connection: Connection, makerAddress: Address, form: SwapFormState | SwapOffer) {
@@ -373,32 +386,42 @@ async function signAndSendWalletTransaction(walletName: string | undefined, tx: 
   const account = standardWallet?.accounts[0];
   const serialized = await tx.serialize({ requireAllSignatures: false, verifySignatures: false });
   const chain = cluster.id as `${string}:${string}`;
-  const signAndSendFeature = standardWallet?.features[SolanaSignAndSendTransaction] as SolanaSignAndSendTransactionFeature[typeof SolanaSignAndSendTransaction] | undefined;
+  const signFeature = standardWallet?.features[SolanaSignTransaction] as SolanaSignTransactionFeature[typeof SolanaSignTransaction] | undefined;
+  if (signFeature && account) {
+    const [result] = await signFeature.signTransaction({ account, transaction: serialized, chain, options: { preflightCommitment: "confirmed" } });
+    if (!result?.signedTransaction) throw new Error("Wallet did not return a signed transaction.");
+    return sendSignedTransaction(connection, result.signedTransaction, cluster);
+  }
 
+  const signAndSendFeature = standardWallet?.features[SolanaSignAndSendTransaction] as SolanaSignAndSendTransactionFeature[typeof SolanaSignAndSendTransaction] | undefined;
   if (signAndSendFeature && account) {
+    if (cluster.id === "solana:localnet") throw new Error("This wallet only exposed sign-and-send. For Surfnet, use a wallet/account that supports signTransaction, or set the wallet's RPC/network to http://127.0.0.1:8899.");
     const [result] = await signAndSendFeature.signAndSendTransaction({ account, transaction: serialized, chain, options: { commitment: "confirmed" } });
     if (!result?.signature) throw new Error("Wallet did not return a transaction signature.");
     return bytesToBase58(result.signature);
   }
 
-  const signFeature = standardWallet?.features[SolanaSignTransaction] as SolanaSignTransactionFeature[typeof SolanaSignTransaction] | undefined;
-  if (signFeature && account) {
-    const [result] = await signFeature.signTransaction({ account, transaction: serialized, chain, options: { preflightCommitment: "confirmed" } });
-    if (!result?.signedTransaction) throw new Error("Wallet did not return a signed transaction.");
-    return connection.sendRawTransaction(result.signedTransaction);
-  }
-
   const provider = getLegacySolanaProvider(walletName);
+  if (provider?.signTransaction) {
+    const signed = await provider.signTransaction(tx);
+    return sendSignedTransaction(connection, await signed.serialize(), cluster);
+  }
   if (provider?.signAndSendTransaction) {
+    if (cluster.id === "solana:localnet") throw new Error("This wallet only exposed sign-and-send. For Surfnet, use a wallet/account that supports signTransaction, or set the wallet's RPC/network to http://127.0.0.1:8899.");
     const result = await provider.signAndSendTransaction(tx);
     if (result?.signature) return result.signature;
   }
-  if (provider?.signTransaction) {
-    const signed = await provider.signTransaction(tx);
-    return connection.sendRawTransaction(await signed.serialize());
-  }
 
   throw new Error("Connected wallet does not expose Solana transaction signing.");
+}
+
+async function sendSignedTransaction(connection: Connection, signedTransaction: Uint8Array, cluster: AppCluster) {
+  const signature = await connection.sendRawTransaction(signedTransaction, {
+    preflightCommitment: "confirmed",
+    skipPreflight: cluster.id === "solana:localnet",
+  });
+  await confirmTransaction(connection, signature);
+  return signature;
 }
 
 function Field({ label, value, onChange, inputMode, placeholder, hideLabel }: { label: string; value: string; onChange: (value: string) => void; inputMode?: "decimal"; placeholder?: string; hideLabel?: boolean }) {
