@@ -16,6 +16,7 @@ const VECTOR_PDA_SEED = new TextEncoder().encode("vector");
 const PDA_MARKER = new TextEncoder().encode("ProgramDerivedAddress");
 const INITIALIZE_DISCRIMINATOR = 0;
 const ADVANCE_DISCRIMINATOR = 1;
+const CLOSE_DISCRIMINATOR = 2;
 const PASSTHROUGH_DISCRIMINATOR = 4;
 
 export function findVectorPda(scheme: Scheme, identity: Uint8Array): [Address, number] {
@@ -52,6 +53,18 @@ export function createAdvanceInstruction(scheme: Scheme, identity: Uint8Array, s
       { pubkey: SYSVAR_INSTRUCTIONS_PUBKEY, isSigner: false, isWritable: false },
     ],
     data,
+  });
+}
+
+export function createCloseSubinstruction(scheme: Scheme, identity: Uint8Array, closeTo: Address): TransactionInstruction {
+  const [vectorPda] = findVectorPda(scheme, identity);
+  return new TransactionInstruction({
+    programId: scheme.programId,
+    keys: [
+      { pubkey: vectorPda, isSigner: true, isWritable: true },
+      { pubkey: closeTo, isSigner: false, isWritable: true },
+    ],
+    data: new Uint8Array([CLOSE_DISCRIMINATOR]),
   });
 }
 

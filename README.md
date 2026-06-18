@@ -22,9 +22,9 @@ bun start
 
 This workflow runs the full Vector PDA swap flow locally:
 
-- Start a Surfpool Surfnet on `http://127.0.0.1:8899`.
-- Deploy the Vector Ed25519 program from `target/deploy`.
-- Create local SPL mints and token accounts for your maker/taker wallets.
+- Start a mainnet-backed Surfpool Surfnet on `http://127.0.0.1:8899`.
+- Let Surfpool auto-deploy the Vector program from `target/deploy`.
+- Let Surfpool resolve SPL mints and existing token accounts from mainnet on demand.
 - Run the app against Surfnet.
 - Create a swap link as the maker, then open it as the taker and take the swap.
 
@@ -48,7 +48,7 @@ Install the Solana CLI if it is not already available:
 solana --version
 ```
 
-The deploy and seed scripts use your local Solana keypair at `~/.config/solana/id.json` as the payer. To use another payer keypair:
+Surfpool airdrops local SOL to your local Solana keypair at `~/.config/solana/id.json`. To use another payer keypair:
 
 ```bash
 export SOLANA_KEYPAIR=/path/to/id.json
@@ -64,51 +64,40 @@ bun run surfnet
 
 This starts local RPC at `http://127.0.0.1:8899` and WebSocket at `ws://127.0.0.1:8900`.
 
-### 2. Deploy Vector
-
-Run this in terminal 2:
-
-```bash
-bun run surfnet:deploy-vector
-```
-
-Expected program id:
+Surfpool loads the Vector artifact from `target/deploy/vector_ed25519.so` with program id:
 
 ```text
 EMeHQpaeoU3NN679YimZWVxvaSeWqDHMKafcDxGWGRrY
 ```
 
-The app sets `VECTOR_PROGRAM` to this id in `bun run dev:surfnet`.
+### 2. Start The App
 
-### 3. Seed Tokens
-
-Use the browser wallet addresses you will use for the maker and taker:
+Optionally fund your Surfnet maker and taker accounts in terminal 2:
 
 ```bash
-bun run surfnet:seed <maker-wallet-address> <taker-wallet-address>
+bun run surfnet:fund --case-1|--case-2|--case-3 <maker-wallet-address> <taker-wallet-address>
 ```
 
-Example:
+This airdrops local SOL to both wallets and funds any non-SOL source token accounts needed for the swap. It uses Surfpool cheatcodes against local Surfnet only; it does not clone or create local mints.
+
+Examples:
 
 ```bash
-bun run surfnet:seed HWKDDmWEWeEmrhAdLx7hv3y5C7Hnp2KJYyMoTdb722dg 1yr11wi9My98QoAvn5mCxUciatiNv9eaNhQRoWq8Ef5
+# 1. Maker SOL for taker USDC.
+bun run surfnet:fund --case-1 <maker-wallet-address> <taker-wallet-address>
+
+# 2. Maker USDC for taker SOL.
+bun run surfnet:fund --case-2 <maker-wallet-address> <taker-wallet-address>
+
+# 3. Maker USDC for taker USDT.
+bun run surfnet:fund --case-3 <maker-wallet-address> <taker-wallet-address>
 ```
 
-This script:
+When a side uses wrapped SOL, the app uses native SOL from that wallet and wraps only the required amount during the signed flow. When the maker uses a non-SOL token, `surfnet:fund` funds the maker Vector PDA token account because that is the token authority used by the swap.
 
-- Airdrops SOL to the payer, maker, and taker on Surfnet.
-- Creates two local SPL mints.
-- Creates token accounts for the maker Vector PDA and taker wallet.
-- Mints local token A to the maker Vector PDA token account.
-- Mints local token B to the taker token account.
-- Writes `.surfpool/local-token-env.sh` with the local mint addresses.
-
-### 4. Start The App
-
-Start the app with the token env file written by the seed command:
+Start the app in terminal 3:
 
 ```bash
-source .surfpool/local-token-env.sh
 bun run dev:surfnet
 ```
 
@@ -118,14 +107,14 @@ Open the app at the Vite URL, usually:
 http://localhost:3000
 ```
 
-### 5. Create And Take A Swap
+### 3. Create And Take A Swap
 
 Maker flow:
 
 1. Connect the maker wallet.
 2. Keep cluster set to `Localnet`.
 3. Enter the taker wallet address.
-4. Use the preselected local tokens from the seed step.
+4. Use the preselected mainnet tokens or search for a token by symbol or mint address.
 5. Enter maker send amount and taker send amount.
 6. Click `Create swap link`.
 
@@ -137,6 +126,8 @@ Taker flow:
 2. Connect the taker wallet.
 3. Review the maker/taker addresses, token addresses, and amounts.
 4. Click `Take swap`.
+
+Surfnet is backed by mainnet, so Surfpool fetches mint and account data from mainnet instead of requiring local clone or seed steps. Use `surfnet:fund` when you need local-only balances for test wallets.
 
 ### Wallet Requirements
 
@@ -163,26 +154,20 @@ bun run db:push
 
 ### Useful Checks
 
-Verify Vector is deployed and executable:
+Verify Surfpool deployed the local Vector program:
 
 ```bash
 bun --eval 'import { Connection, Address } from "@solana/web3.js"; const c = new Connection("http://127.0.0.1:8899", "confirmed"); const info = await c.getAccountInfo(new Address("EMeHQpaeoU3NN679YimZWVxvaSeWqDHMKafcDxGWGRrY")); console.log(info && { executable: info.executable, owner: info.owner.toString(), lamports: info.lamports, dataLength: info.data.length });'
-```
-
-Verify the seed env exists:
-
-```bash
-cat .surfpool/local-token-env.sh
 ```
 
 ### Common Errors
 
 `This program may not be used for executing instructions`
 
-Run:
+Restart Surfpool with the mainnet-backed script:
 
 ```bash
-bun run surfnet:deploy-vector
+bun run surfnet
 ```
 
 `Blockhash not found`

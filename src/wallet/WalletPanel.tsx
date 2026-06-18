@@ -1,5 +1,5 @@
 import { Address, Connection, SystemProgram, Transaction, type TransactionSignature } from "@solana/web3.js";
-import { getAssociatedTokenAddressSync, getMint, createTransferCheckedInstruction } from "@solana/spl-token";
+import { createAssociatedTokenAccountIdempotentInstruction, createSyncNativeInstruction, createTransferInstruction, getAccount, getAssociatedTokenAddressSync, getMint } from "@solana/spl-token";
 import { getWallets } from "@wallet-standard/app";
 import { StandardConnect, type StandardConnectFeature } from "@wallet-standard/features";
 import {
@@ -15,7 +15,7 @@ import { WalletUiIcon, useWalletUi, type UiWallet } from "@wallet-ui/react";
 import { useDeferredValue, useEffect, useState } from "react";
 import { orpc } from "../lib/orpc";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../components/ui/select";
-import { ED25519, advanceVectorDigest, createAdvanceInstruction, createInitializeEd25519, createPassthroughInstruction, findVectorPda } from "../lib/vector";
+import { ED25519, advanceVectorDigest, createAdvanceInstruction, createCloseSubinstruction, createInitializeEd25519, createPassthroughInstruction, findVectorPda } from "../lib/vector";
 import type { SwapOffer } from "../swaps/swapServer";
 import { appClusters, defaultCluster, type AppCluster } from "./clusters";
 import { SolanaProvider } from "./SolanaProvider";
@@ -54,11 +54,11 @@ const solToken: TokenSearchResult = {
   isSus: false,
 };
 
-const usdtToken: TokenSearchResult = {
-  address: import.meta.env.BUN_PUBLIC_DEFAULT_TAKER_SEND_TOKEN_ADDRESS ?? "Es9vMFrzaCERmJfrF4H2FYD4GTGKTqGk53JTh2S",
-  name: import.meta.env.BUN_PUBLIC_DEFAULT_TAKER_SEND_TOKEN_NAME ?? "USDT",
-  symbol: import.meta.env.BUN_PUBLIC_DEFAULT_TAKER_SEND_TOKEN_SYMBOL ?? "USDT",
-  icon: "https://raw.githubusercontent.com/solana-labs/token-list/main/assets/mainnet/Es9vMFrzaCERmJfrF4H2FYD4GTGKTqGk53JTh2S/logo.svg",
+const usdcToken: TokenSearchResult = {
+  address: import.meta.env.BUN_PUBLIC_DEFAULT_TAKER_SEND_TOKEN_ADDRESS ?? "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
+  name: import.meta.env.BUN_PUBLIC_DEFAULT_TAKER_SEND_TOKEN_NAME ?? "USD Coin",
+  symbol: import.meta.env.BUN_PUBLIC_DEFAULT_TAKER_SEND_TOKEN_SYMBOL ?? "USDC",
+  icon: "https://raw.githubusercontent.com/solana-labs/token-list/main/assets/mainnet/EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v/logo.png",
   decimals: Number(import.meta.env.BUN_PUBLIC_DEFAULT_TAKER_SEND_TOKEN_DECIMALS ?? 6),
   isVerified: true,
   organicScoreLabel: "high",
@@ -69,9 +69,11 @@ const defaultSwapForm: SwapFormState = {
   makerSendTokenAddress: solToken.address,
   makerSendAmount: "",
   takerAddress: "",
-  takerSendTokenAddress: usdtToken.address,
+  takerSendTokenAddress: usdcToken.address,
   takerSendAmount: "",
 };
+
+const wrappedSolMintAddress = "So11111111111111111111111111111111111111112";
 
 export function WalletPanel({ swapId }: { swapId?: string }) {
   return (
@@ -88,7 +90,7 @@ function SwapCard({ swapId }: { swapId?: string }) {
   const [connectedAddress, setConnectedAddress] = useState<string>();
   const [form, setForm] = useState<SwapFormState>(defaultSwapForm);
   const [makerSendToken, setMakerSendToken] = useState<TokenSearchResult | undefined>(solToken);
-  const [takerSendToken, setTakerSendToken] = useState<TokenSearchResult | undefined>(usdtToken);
+  const [takerSendToken, setTakerSendToken] = useState<TokenSearchResult | undefined>(usdcToken);
   const [tokenPickerMode, setTokenPickerMode] = useState<"maker-send" | "taker-send">();
   const [loadedOffer, setLoadedOffer] = useState<SwapOffer>();
   const [generatedLink, setGeneratedLink] = useState<string>();
@@ -167,6 +169,7 @@ function SwapCard({ swapId }: { swapId?: string }) {
       const takerAddress = new Address(form.takerAddress);
       const connection = new Connection(cluster.url, "confirmed");
       await ensureVectorAccountInitialized(connection, makerAddress, connectedWalletName, cluster, setStatus);
+      await wrapMakerSolIfNeeded(connection, makerAddress, form, connectedWalletName, cluster, setStatus);
       const { passthroughIx, digest } = await buildSwapAuthorization(connection, makerAddress, form);
       const vectorSignature = await signWalletMessage(connectedWalletName, makerAddress.toString(), digest);
       createAdvanceInstruction(ED25519, makerAddress.toBytes(), vectorSignature);
@@ -205,9 +208,9 @@ function SwapCard({ swapId }: { swapId?: string }) {
       const connection = new Connection(cluster.url, "confirmed");
       const makerAddress = new Address(loadedOffer.makerAddress);
       const takerAddress = new Address(loadedOffer.takerAddress);
-      const { passthroughIx, takerTransferIx } = await buildSwapAuthorization(connection, makerAddress, loadedOffer);
+      const { setupIxs, passthroughIx, takerTransferIx } = await buildSwapAuthorization(connection, makerAddress, loadedOffer);
       const advanceIx = createAdvanceInstruction(ED25519, makerAddress.toBytes(), base64ToBytes(loadedOffer.vectorSignature));
-      const tx = new Transaction({ ...(await connection.getLatestBlockhash()), feePayer: takerAddress }).add(advanceIx, passthroughIx, takerTransferIx);
+      const tx = new Transaction({ ...(await connection.getLatestBlockhash()), feePayer: takerAddress }).add(...setupIxs, advanceIx, passthroughIx, takerTransferIx);
 
       await simulateTransaction(connection, tx);
       const signature = await signAndSendWalletTransaction(connectedWalletName, tx, cluster, connection);
@@ -313,10 +316,43 @@ async function ensureVectorAccountInitialized(connection: Connection, makerAddre
   await confirmTransaction(connection, signature);
 }
 
+async function wrapMakerSolIfNeeded(connection: Connection, makerAddress: Address, form: SwapFormState, walletName: string | undefined, cluster: AppCluster, setStatus: (status: string) => void) {
+  if (form.makerSendTokenAddress !== wrappedSolMintAddress) return;
+
+  const makerSendMint = new Address(form.makerSendTokenAddress);
+  const makerSendMintInfo = await getMint(connection, makerSendMint);
+  const requiredAmount = parseTokenAmount(form.makerSendAmount, makerSendMintInfo.decimals);
+  const [makerVectorPda] = findVectorPda(ED25519, makerAddress.toBytes());
+  const makerSendSource = getAssociatedTokenAddressSync(makerSendMint, makerVectorPda, true);
+  const existingAmount = await getTokenAccountAmount(connection, makerSendSource);
+  const missingAmount = requiredAmount - existingAmount;
+  if (missingAmount <= 0n) return;
+  if (missingAmount > BigInt(Number.MAX_SAFE_INTEGER)) throw new Error("Maker SOL wrap amount is too large for this transaction.");
+
+  setStatus("Wrapping maker SOL into the Vector PDA token account...");
+  const tx = new Transaction({ ...(await connection.getLatestBlockhash()), feePayer: makerAddress }).add(
+    createAssociatedTokenAccountIdempotentInstruction(makerAddress, makerSendSource, makerVectorPda, makerSendMint),
+    SystemProgram.transfer({ fromPubkey: makerAddress, toPubkey: makerSendSource, lamports: Number(missingAmount) }),
+    createSyncNativeInstruction(makerSendSource),
+  );
+  await simulateTransaction(connection, tx);
+  const signature = await signAndSendWalletTransaction(walletName, tx, cluster, connection);
+  await confirmTransaction(connection, signature);
+}
+
+async function getTokenAccountAmount(connection: Connection, tokenAccount: Address) {
+  try {
+    const account = await getAccount(connection, tokenAccount);
+    return account.amount;
+  } catch {
+    return 0n;
+  }
+}
+
 async function assertVectorProgramDeployed(connection: Connection) {
   const programAccount = await connection.getAccountInfo(ED25519.programId);
   if (!programAccount?.executable) {
-    throw new Error(`Vector program is not deployed on this RPC. Run: bun run surfnet:deploy-vector`);
+    throw new Error("Vector program is not available on this RPC. Restart Surfpool with: bun run surfnet");
   }
 }
 
@@ -335,13 +371,43 @@ async function buildSwapAuthorization(connection: Connection, makerAddress: Addr
   const makerSendSource = getAssociatedTokenAddressSync(makerSendMint, makerVectorPda, true);
   const makerSendDestination = getAssociatedTokenAddressSync(makerSendMint, takerAddress);
   const takerSendSource = getAssociatedTokenAddressSync(takerSendMint, takerAddress);
-  const takerSendDestination = getAssociatedTokenAddressSync(takerSendMint, makerVectorPda, true);
-  const makerTransfer = createTransferCheckedInstruction(makerSendSource, makerSendMint, makerSendDestination, makerVectorPda, makerSendAmount, makerSendMintInfo.decimals);
-  const takerTransfer = createTransferCheckedInstruction(takerSendSource, takerSendMint, takerSendDestination, takerAddress, takerSendAmount, takerSendMintInfo.decimals);
-  const passthroughIx = createPassthroughInstruction(ED25519, makerAddress.toBytes(), [makerTransfer]);
-  const digest = advanceVectorDigest(ED25519, vectorAccount.data.slice(0, 32), makerAddress.toBytes(), [], [passthroughIx, takerTransfer], takerAddress);
+  const takerSendDestination = getAssociatedTokenAddressSync(takerSendMint, makerAddress);
+  const setupIxs = await createMissingAtaInstructions(connection, takerAddress, [
+    { ata: makerSendSource, owner: makerVectorPda, mint: makerSendMint },
+    { ata: makerSendDestination, owner: takerAddress, mint: makerSendMint },
+    { ata: takerSendSource, owner: takerAddress, mint: takerSendMint },
+    { ata: takerSendDestination, owner: makerAddress, mint: takerSendMint },
+  ]);
+  setupIxs.push(...await createTakerWrapSolInstructions(connection, takerAddress, takerSendSource, takerSendMint, takerSendAmount));
+  const makerTransfer = createTransferInstruction(makerSendSource, makerSendDestination, makerVectorPda, makerSendAmount);
+  const takerTransfer = createTransferInstruction(takerSendSource, takerSendDestination, takerAddress, takerSendAmount);
+  const closeVector = createCloseSubinstruction(ED25519, makerAddress.toBytes(), makerAddress);
+  const passthroughIx = createPassthroughInstruction(ED25519, makerAddress.toBytes(), [makerTransfer, closeVector]);
+  const digest = advanceVectorDigest(ED25519, vectorAccount.data.slice(0, 32), makerAddress.toBytes(), setupIxs, [passthroughIx, takerTransfer], takerAddress);
 
-  return { passthroughIx, takerTransferIx: takerTransfer, digest };
+  return { setupIxs, passthroughIx, takerTransferIx: takerTransfer, digest };
+}
+
+async function createMissingAtaInstructions(connection: Connection, payer: Address, accounts: { ata: Address; owner: Address; mint: Address }[]) {
+  const infos = await connection.getMultipleAccountsInfo(accounts.map((account) => account.ata));
+  return accounts.flatMap((account, index) => {
+    if (infos[index]) return [];
+    return [createAssociatedTokenAccountIdempotentInstruction(payer, account.ata, account.owner, account.mint)];
+  });
+}
+
+async function createTakerWrapSolInstructions(connection: Connection, takerAddress: Address, takerSendSource: Address, takerSendMint: Address, requiredAmount: bigint) {
+  if (takerSendMint.toString() !== wrappedSolMintAddress) return [];
+
+  const existingAmount = await getTokenAccountAmount(connection, takerSendSource);
+  const missingAmount = requiredAmount - existingAmount;
+  if (missingAmount <= 0n) return [];
+  if (missingAmount > BigInt(Number.MAX_SAFE_INTEGER)) throw new Error("Taker SOL wrap amount is too large for this transaction.");
+
+  return [
+    SystemProgram.transfer({ fromPubkey: takerAddress, toPubkey: takerSendSource, lamports: Number(missingAmount) }),
+    createSyncNativeInstruction(takerSendSource),
+  ];
 }
 
 function parseTokenAmount(amount: string, decimals: number) {
@@ -354,7 +420,14 @@ function parseTokenAmount(amount: string, decimals: number) {
 
 async function simulateTransaction(connection: Connection, tx: Transaction) {
   const result = await connection.simulateTransaction(tx);
-  if (result.value.err) throw new Error(`Simulation failed: ${JSON.stringify(result.value.err)}`);
+  if (result.value.err) {
+    const logs = result.value.logs?.join("\n") ?? "No simulation logs returned.";
+    throw new Error(`Simulation failed: ${stringifyRpcError(result.value.err)}\n${logs}`);
+  }
+}
+
+function stringifyRpcError(error: unknown) {
+  return JSON.stringify(error, (_key, value) => (typeof value === "bigint" ? value.toString() : value));
 }
 
 async function confirmTransaction(connection: Connection, signature: TransactionSignature) {
