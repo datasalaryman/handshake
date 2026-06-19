@@ -6,7 +6,7 @@ import { fileURLToPath, URL } from "node:url";
 import { defineConfig } from "vite";
 
 export default defineConfig({
-  envPrefix: ["VITE_", "BUN_PUBLIC_", "RPC_URL", "VECTOR_PROGRAM"],
+  envPrefix: ["VITE_", "BUN_PUBLIC_", "RPC_URL", "VECTOR_PROGRAM", "VERCEL_ENV"],
   resolve: {
     alias: {
       "@": fileURLToPath(new URL("./src", import.meta.url)),

@@ -24,6 +24,7 @@ declare module "*.css?url" {
 interface ImportMetaEnv {
   readonly RPC_URL?: string;
   readonly VECTOR_PROGRAM?: string;
+  readonly VERCEL_ENV?: "development" | "preview" | "production" | string;
   readonly BUN_PUBLIC_SOLANA_LOCALNET_RPC_URL?: string;
   readonly BUN_PUBLIC_SOLANA_DEVNET_RPC_URL?: string;
   readonly BUN_PUBLIC_SOLANA_TESTNET_RPC_URL?: string;

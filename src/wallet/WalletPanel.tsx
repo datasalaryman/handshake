@@ -15,7 +15,7 @@ import { orpc } from "../lib/orpc";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../components/ui/select";
 import { VECTOR, createAdvanceInstruction, createCloseSubinstruction, createDeterministicKeypair, createInitializeInstruction, createPassthroughInstruction, findVectorPda, signAdvanceInstruction, vectorIdentity, type VectorKeypair } from "../lib/vector";
 import type { SwapOffer } from "../swaps/swapServer";
-import { appClusters, defaultCluster, type AppCluster } from "./clusters";
+import { appClusters, defaultCluster, isDevelopmentEnvironment, type AppCluster } from "./clusters";
 import { SolanaProvider } from "./SolanaProvider";
 
 type SwapFormState = {
@@ -136,7 +136,8 @@ function SwapCard({ swapId }: { swapId?: string }) {
       try {
         const offer = await orpc.swapOffers.get({ id });
         setLoadedOffer(offer);
-        setClusterId(offer.clusterId as AppCluster["id"]);
+        const offerClusterId = offer.clusterId as AppCluster["id"];
+        setClusterId(appClusters.some((clusterOption) => clusterOption.id === offerClusterId) ? offerClusterId : defaultCluster.id);
         setForm({
           makerSendTokenAddress: offer.makerSendTokenAddress,
           makerSendAmount: offer.makerSendAmount,
@@ -232,7 +233,7 @@ function SwapCard({ swapId }: { swapId?: string }) {
           <h2 className="mt-1 text-2xl font-semibold">{isSwapLink ? "Take Vector-signed swap" : "Vector-signed token exchange"}</h2>
         </div>
         <div className="flex flex-wrap gap-2">
-          <ClusterSelector cluster={cluster} onClusterChange={setClusterId} />
+          {isDevelopmentEnvironment ? <ClusterSelector cluster={cluster} onClusterChange={setClusterId} /> : null}
           {!isConnected ? <WalletSelector wallets={wallets} onConnect={(walletName, address) => {
             setConnectedWalletName(walletName);
             setConnectedAddress(address);
