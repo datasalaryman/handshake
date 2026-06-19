@@ -1,4 +1,5 @@
 import { Address, TransactionInstruction, type AccountMeta } from "@solana/web3.js";
+import { falcon512 as nobleFalcon } from "@noble/post-quantum/falcon.js";
 import { advanceVectorDigest as sdkAdvanceVectorDigest } from "./vector-sdk/digest";
 import {
   createAdvanceInstruction as sdkCreateAdvanceInstruction,
@@ -7,6 +8,7 @@ import {
   createPassthroughInstruction as sdkCreatePassthroughInstruction,
 } from "./vector-sdk/instructions";
 import { findVectorPda as sdkFindVectorPda, type Scheme as SdkScheme } from "./vector-sdk/scheme";
+import { FALCON_PUBKEY_LEN, FALCON_PREPARED_PUBKEY_LEN, FALCON_SIGNATURE_LEN, sha256 } from "./vector-sdk/scheme";
 
 export type Scheme = {
   programId: Address;
@@ -15,35 +17,92 @@ export type Scheme = {
   storedIdentityLen: number;
 };
 
-export const ED25519: Scheme = {
-  programId: new Address(import.meta.env.VECTOR_PROGRAM ?? "vectorcLBXJ2TuoKuUygkEi6FWqvBnbHDEDWoYamfjV"),
-  signatureLen: 64,
+export const VECTOR: Scheme = {
+  programId: new Address(import.meta.env.VECTOR_PROGRAM ?? "HdkE3dPYgCRZJgLv64mbFmojyCprUim8VRXzK2wR6Qgm"),
+  signatureLen: FALCON_SIGNATURE_LEN,
   identityLen: 32,
-  storedIdentityLen: 32,
+  storedIdentityLen: 32 + 1 + FALCON_PREPARED_PUBKEY_LEN,
 };
 
-export function createInitializeEd25519(payer: Address, pubkey: Uint8Array) {
-  return normalizeInstruction(sdkCreateInitializeInstruction(payer as never, toSdkScheme(ED25519), pubkey, pubkey));
+export type VectorKeypair = {
+  secretKey: Uint8Array;
+  publicKey: Uint8Array;
+};
+
+const deterministicSeedPrefix = new TextEncoder().encode("handshake:vector:falcon512:surfnet:v1");
+
+export function createInitializeInstruction(payer: Address, publicKey: Uint8Array) {
+  const identity = vectorIdentity(publicKey);
+  return normalizeInstruction(sdkCreateInitializeInstruction(payer as never, toSdkScheme(VECTOR), identity, publicKey));
 }
 
-export function createAdvanceInstruction(scheme: Scheme, identity: Uint8Array, signature: Uint8Array) {
-  return normalizeInstruction(sdkCreateAdvanceInstruction(toSdkScheme(scheme), identity, signature));
+export function createKeypair(seed?: Uint8Array): VectorKeypair {
+  const kp = seed ? nobleFalcon.keygen(seed) : nobleFalcon.keygen();
+  return {
+    secretKey: Uint8Array.from(kp.secretKey),
+    publicKey: Uint8Array.from(kp.publicKey),
+  };
 }
 
-export function createCloseSubinstruction(scheme: Scheme, identity: Uint8Array, closeTo: Address) {
-  return normalizeInstruction(sdkCreateCloseSubinstruction(toSdkScheme(scheme), identity, closeTo as never));
+export function createDeterministicKeypair(owner: Address): VectorKeypair {
+  return createKeypair(deterministicSeed(owner));
 }
 
-export function createPassthroughInstruction(scheme: Scheme, identity: Uint8Array, subInstructions: TransactionInstruction[]) {
-  return normalizeInstruction(sdkCreatePassthroughInstruction(toSdkScheme(scheme), identity, subInstructions as never));
+export function deterministicIdentity(owner: Address): Uint8Array {
+  return vectorIdentity(createDeterministicKeypair(owner).publicKey);
 }
 
-export function advanceVectorDigest(scheme: Scheme, nonce: Uint8Array, identity: Uint8Array, preInstructions: TransactionInstruction[], postInstructions: TransactionInstruction[], feePayer?: Address) {
-  return sdkAdvanceVectorDigest(toSdkScheme(scheme), nonce, identity, preInstructions as never, postInstructions as never, feePayer as never);
+function deterministicSeed(owner: Address): Uint8Array {
+  const ownerBytes = owner.toBytes();
+  const seedMaterial = new Uint8Array(deterministicSeedPrefix.length + ownerBytes.length + 1);
+  seedMaterial.set(deterministicSeedPrefix, 0);
+  seedMaterial.set(ownerBytes, deterministicSeedPrefix.length);
+
+  const seed = new Uint8Array(48);
+  seed.set(sha256(seedMaterial), 0);
+  seedMaterial[seedMaterial.length - 1] = 1;
+  seed.set(sha256(seedMaterial).slice(0, 16), 32);
+  return seed;
 }
 
-export function findVectorPda(scheme: Scheme, identity: Uint8Array): [Address, number] {
-  const [pda, bump] = sdkFindVectorPda(toSdkScheme(scheme), identity);
+export function vectorIdentity(publicKey: Uint8Array): Uint8Array {
+  if (publicKey.length !== FALCON_PUBKEY_LEN) {
+    throw new Error(`Vector public key must be ${FALCON_PUBKEY_LEN} bytes, got ${publicKey.length}`);
+  }
+  return sha256(publicKey);
+}
+
+export function signAdvanceInstruction(keypair: VectorKeypair, nonce: Uint8Array, preInstructions: TransactionInstruction[], postInstructions: TransactionInstruction[], feePayer?: Address) {
+  const identity = vectorIdentity(keypair.publicKey);
+  const digest = advanceVectorDigest(nonce, identity, preInstructions, postInstructions, feePayer);
+  const detached = Uint8Array.from(nobleFalcon.sign(digest, keypair.secretKey));
+  if (detached.length > FALCON_SIGNATURE_LEN) {
+    throw new Error(`Vector signature ${detached.length} B exceeds wire size ${FALCON_SIGNATURE_LEN}`);
+  }
+
+  const signature = new Uint8Array(FALCON_SIGNATURE_LEN);
+  signature.set(detached, 0);
+  return createAdvanceInstruction(identity, signature);
+}
+
+export function createAdvanceInstruction(identity: Uint8Array, signature: Uint8Array) {
+  return normalizeInstruction(sdkCreateAdvanceInstruction(toSdkScheme(VECTOR), identity, signature));
+}
+
+export function createCloseSubinstruction(identity: Uint8Array, closeTo: Address) {
+  return normalizeInstruction(sdkCreateCloseSubinstruction(toSdkScheme(VECTOR), identity, closeTo as never));
+}
+
+export function createPassthroughInstruction(identity: Uint8Array, subInstructions: TransactionInstruction[]) {
+  return normalizeInstruction(sdkCreatePassthroughInstruction(toSdkScheme(VECTOR), identity, subInstructions as never));
+}
+
+export function advanceVectorDigest(nonce: Uint8Array, identity: Uint8Array, preInstructions: TransactionInstruction[], postInstructions: TransactionInstruction[], feePayer?: Address) {
+  return sdkAdvanceVectorDigest(toSdkScheme(VECTOR), nonce, identity, preInstructions as never, postInstructions as never, feePayer as never);
+}
+
+export function findVectorPda(identity: Uint8Array): [Address, number] {
+  const [pda, bump] = sdkFindVectorPda(toSdkScheme(VECTOR), identity);
   return [toLocalAddress(pda), bump];
 }
 

@@ -4,10 +4,8 @@ import { getWallets } from "@wallet-standard/app";
 import { StandardConnect, type StandardConnectFeature } from "@wallet-standard/features";
 import {
   SolanaSignAndSendTransaction,
-  SolanaSignMessage,
   SolanaSignTransaction,
   type SolanaSignAndSendTransactionFeature,
-  type SolanaSignMessageFeature,
   type SolanaSignTransactionFeature,
 } from "@solana/wallet-standard-features";
 import { ChevronDown } from "lucide-react";
@@ -15,7 +13,7 @@ import { WalletUiIcon, useWalletUi, type UiWallet } from "@wallet-ui/react";
 import { useDeferredValue, useEffect, useState } from "react";
 import { orpc } from "../lib/orpc";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../components/ui/select";
-import { ED25519, advanceVectorDigest, createAdvanceInstruction, createCloseSubinstruction, createInitializeEd25519, createPassthroughInstruction, findVectorPda } from "../lib/vector";
+import { VECTOR, createAdvanceInstruction, createCloseSubinstruction, createDeterministicKeypair, createInitializeInstruction, createPassthroughInstruction, findVectorPda, signAdvanceInstruction, vectorIdentity, type VectorKeypair } from "../lib/vector";
 import type { SwapOffer } from "../swaps/swapServer";
 import { appClusters, defaultCluster, type AppCluster } from "./clusters";
 import { SolanaProvider } from "./SolanaProvider";
@@ -74,7 +72,6 @@ const defaultSwapForm: SwapFormState = {
 };
 
 const wrappedSolMintAddress = "So11111111111111111111111111111111111111112";
-
 export function WalletPanel({ swapId }: { swapId?: string }) {
   return (
     <SolanaProvider>
@@ -168,11 +165,13 @@ function SwapCard({ swapId }: { swapId?: string }) {
       const makerAddress = new Address(address);
       const takerAddress = new Address(form.takerAddress);
       const connection = new Connection(cluster.url, "confirmed");
-      await ensureVectorAccountInitialized(connection, makerAddress, connectedWalletName, cluster, setStatus);
-      await wrapMakerSolIfNeeded(connection, makerAddress, form, connectedWalletName, cluster, setStatus);
-      const { passthroughIx, digest } = await buildSwapAuthorization(connection, makerAddress, form);
-      const vectorSignature = await signWalletMessage(connectedWalletName, makerAddress.toString(), digest);
-      createAdvanceInstruction(ED25519, makerAddress.toBytes(), vectorSignature);
+      const vectorKeypair = createDeterministicKeypair(makerAddress);
+      const identity = vectorIdentity(vectorKeypair.publicKey);
+      await ensureVectorAccountInitialized(connection, makerAddress, vectorKeypair, identity, connectedWalletName, cluster, setStatus);
+      await wrapMakerSolIfNeeded(connection, makerAddress, identity, form, connectedWalletName, cluster, setStatus);
+      const { passthroughIx, setupIxs, takerTransferIx } = await buildSwapAuthorization(connection, makerAddress, identity, form);
+      const advanceIx = signAdvanceInstruction(vectorKeypair, await getVectorNonce(connection, identity), setupIxs, [passthroughIx, takerTransferIx], takerAddress);
+      const vectorSignature = encodeVectorAuthorization(identity, advanceIx.data.slice(1));
 
       const offer = await orpc.swapOffers.create({
         clusterId: cluster.id,
@@ -182,12 +181,12 @@ function SwapCard({ swapId }: { swapId?: string }) {
         takerAddress: takerAddress.toString(),
         takerSendTokenAddress: form.takerSendTokenAddress,
         takerSendAmount: form.takerSendAmount,
-        vectorSignature: bytesToBase64(vectorSignature),
+        vectorSignature,
       });
 
       const link = new URL(`/swap/${offer.id}`, window.location.origin);
       setGeneratedLink(link.toString());
-      setLoadedOffer({ ...offer, vectorSignature: bytesToBase64(vectorSignature) });
+      setLoadedOffer({ ...offer, vectorSignature });
       setStatus(`Maker signed the Vector digest for ${passthroughIx.keys.length} passthrough accounts. Link is ready for the taker.`);
     } catch (error) {
       setError(error instanceof Error ? error.message : "Could not create maker-signed swap link.");
@@ -208,15 +207,16 @@ function SwapCard({ swapId }: { swapId?: string }) {
       const connection = new Connection(cluster.url, "confirmed");
       const makerAddress = new Address(loadedOffer.makerAddress);
       const takerAddress = new Address(loadedOffer.takerAddress);
-      const { setupIxs, passthroughIx, takerTransferIx } = await buildSwapAuthorization(connection, makerAddress, loadedOffer);
-      const advanceIx = createAdvanceInstruction(ED25519, makerAddress.toBytes(), base64ToBytes(loadedOffer.vectorSignature));
+      const { identity, signature: vectorSignature } = decodeVectorAuthorization(loadedOffer.vectorSignature);
+      const { setupIxs, passthroughIx, takerTransferIx } = await buildSwapAuthorization(connection, makerAddress, identity, loadedOffer);
+      const advanceIx = createAdvanceInstruction(identity, vectorSignature);
       const tx = new Transaction({ ...(await connection.getLatestBlockhash()), feePayer: takerAddress }).add(...setupIxs, advanceIx, passthroughIx, takerTransferIx);
 
       await simulateTransaction(connection, tx);
-      const signature = await signAndSendWalletTransaction(connectedWalletName, tx, cluster, connection);
-      const updatedOffer = await orpc.swapOffers.markSubmitted({ id: loadedOffer.id, submittedSignature: signature });
+      const submittedSignature = await signAndSendWalletTransaction(connectedWalletName, tx, cluster, connection);
+      const updatedOffer = await orpc.swapOffers.markSubmitted({ id: loadedOffer.id, submittedSignature });
       setLoadedOffer(updatedOffer);
-      setStatus(`Swap submitted: ${signature}`);
+      setStatus(`Swap submitted: ${submittedSignature}`);
     } catch (error) {
       setError(error instanceof Error ? error.message : "Could not execute swap.");
     } finally {
@@ -299,16 +299,16 @@ function SwapCard({ swapId }: { swapId?: string }) {
   );
 }
 
-async function ensureVectorAccountInitialized(connection: Connection, makerAddress: Address, walletName: string | undefined, cluster: AppCluster, setStatus: (status: string) => void) {
+async function ensureVectorAccountInitialized(connection: Connection, makerAddress: Address, vectorKeypair: VectorKeypair, identity: Uint8Array, walletName: string | undefined, cluster: AppCluster, setStatus: (status: string) => void) {
   await assertVectorProgramDeployed(connection);
-  const [makerVectorPda] = findVectorPda(ED25519, makerAddress.toBytes());
+  const [makerVectorPda] = findVectorPda(identity);
   const existingVectorAccount = await connection.getAccountInfo(makerVectorPda);
   if (existingVectorAccount) return;
 
   setStatus("Initializing maker Vector account...");
-  const rentTopUpLamports = Number(await connection.getMinimumBalanceForRentExemption(64));
+  const rentTopUpLamports = Number(await connection.getMinimumBalanceForRentExemption(33 + VECTOR.storedIdentityLen));
   const tx = new Transaction({ ...(await connection.getLatestBlockhash()), feePayer: makerAddress }).add(
-    createInitializeEd25519(makerAddress, makerAddress.toBytes()),
+    createInitializeInstruction(makerAddress, vectorKeypair.publicKey),
     SystemProgram.transfer({ fromPubkey: makerAddress, toPubkey: makerVectorPda, lamports: rentTopUpLamports }),
   );
   await simulateTransaction(connection, tx);
@@ -316,13 +316,13 @@ async function ensureVectorAccountInitialized(connection: Connection, makerAddre
   await confirmTransaction(connection, signature);
 }
 
-async function wrapMakerSolIfNeeded(connection: Connection, makerAddress: Address, form: SwapFormState, walletName: string | undefined, cluster: AppCluster, setStatus: (status: string) => void) {
+async function wrapMakerSolIfNeeded(connection: Connection, makerAddress: Address, identity: Uint8Array, form: SwapFormState, walletName: string | undefined, cluster: AppCluster, setStatus: (status: string) => void) {
   if (form.makerSendTokenAddress !== wrappedSolMintAddress) return;
 
   const makerSendMint = new Address(form.makerSendTokenAddress);
   const makerSendMintInfo = await getMint(connection, makerSendMint);
   const requiredAmount = parseTokenAmount(form.makerSendAmount, makerSendMintInfo.decimals);
-  const [makerVectorPda] = findVectorPda(ED25519, makerAddress.toBytes());
+  const [makerVectorPda] = findVectorPda(identity);
   const makerSendSource = getAssociatedTokenAddressSync(makerSendMint, makerVectorPda, true);
   const existingAmount = await getTokenAccountAmount(connection, makerSendSource);
   const missingAmount = requiredAmount - existingAmount;
@@ -350,17 +350,17 @@ async function getTokenAccountAmount(connection: Connection, tokenAccount: Addre
 }
 
 async function assertVectorProgramDeployed(connection: Connection) {
-  const programAccount = await connection.getAccountInfo(ED25519.programId);
+  const programAccount = await connection.getAccountInfo(VECTOR.programId);
   if (!programAccount?.executable) {
     throw new Error("Vector program is not available on this RPC. Restart Surfpool with: bun run surfnet");
   }
 }
 
-async function buildSwapAuthorization(connection: Connection, makerAddress: Address, form: SwapFormState | SwapOffer) {
+async function buildSwapAuthorization(connection: Connection, makerAddress: Address, identity: Uint8Array, form: SwapFormState | SwapOffer) {
   const makerSendMint = new Address(form.makerSendTokenAddress);
   const takerSendMint = new Address(form.takerSendTokenAddress);
   const takerAddress = new Address(form.takerAddress);
-  const [makerVectorPda] = findVectorPda(ED25519, makerAddress.toBytes());
+  const [makerVectorPda] = findVectorPda(identity);
   const vectorAccount = await connection.getAccountInfo(makerVectorPda);
   if (!vectorAccount?.data || vectorAccount.data.length < 33) throw new Error("Maker Vector account is not initialized on this cluster.");
 
@@ -381,11 +381,16 @@ async function buildSwapAuthorization(connection: Connection, makerAddress: Addr
   setupIxs.push(...await createTakerWrapSolInstructions(connection, takerAddress, takerSendSource, takerSendMint, takerSendAmount));
   const makerTransfer = createTransferInstruction(makerSendSource, makerSendDestination, makerVectorPda, makerSendAmount);
   const takerTransfer = createTransferInstruction(takerSendSource, takerSendDestination, takerAddress, takerSendAmount);
-  const closeVector = createCloseSubinstruction(ED25519, makerAddress.toBytes(), makerAddress);
-  const passthroughIx = createPassthroughInstruction(ED25519, makerAddress.toBytes(), [makerTransfer, closeVector]);
-  const digest = advanceVectorDigest(ED25519, vectorAccount.data.slice(0, 32), makerAddress.toBytes(), setupIxs, [passthroughIx, takerTransfer], takerAddress);
+  const closeVector = createCloseSubinstruction(identity, makerAddress);
+  const passthroughIx = createPassthroughInstruction(identity, [makerTransfer, closeVector]);
+  return { setupIxs, passthroughIx, takerTransferIx: takerTransfer };
+}
 
-  return { setupIxs, passthroughIx, takerTransferIx: takerTransfer, digest };
+async function getVectorNonce(connection: Connection, identity: Uint8Array) {
+  const [makerVectorPda] = findVectorPda(identity);
+  const vectorAccount = await connection.getAccountInfo(makerVectorPda);
+  if (!vectorAccount?.data || vectorAccount.data.length < 33) throw new Error("Maker Vector account is not initialized on this cluster.");
+  return vectorAccount.data.slice(0, 32);
 }
 
 async function createMissingAtaInstructions(connection: Connection, payer: Address, accounts: { ata: Address; owner: Address; mint: Address }[]) {
@@ -434,24 +439,6 @@ async function confirmTransaction(connection: Connection, signature: Transaction
   if (!signature || signature.length < 80) return;
   const blockhash = await connection.getLatestBlockhash();
   await connection.confirmTransaction({ signature, ...blockhash }, "confirmed");
-}
-
-async function signWalletMessage(walletName: string | undefined, address: string, message: Uint8Array) {
-  const standardWallet = getRegisteredWallet(walletName);
-  const account = standardWallet?.accounts.find((account) => account.address === address) ?? standardWallet?.accounts[0];
-  const feature = standardWallet?.features[SolanaSignMessage] as SolanaSignMessageFeature[typeof SolanaSignMessage] | undefined;
-
-  if (feature && account) {
-    const [result] = await feature.signMessage({ account, message });
-    if (!result?.signature) throw new Error("Wallet did not return a message signature.");
-    return result.signature;
-  }
-
-  const provider = getLegacySolanaProvider(walletName);
-  const signed = await provider?.signMessage?.(message, "utf8");
-  if (signed?.signature) return signed.signature;
-
-  throw new Error("Connected wallet does not expose Solana message signing.");
 }
 
 async function signAndSendWalletTransaction(walletName: string | undefined, tx: Transaction, cluster: AppCluster, connection: Connection) {
@@ -847,6 +834,19 @@ function bytesToBase64(bytes: Uint8Array) {
 
 function base64ToBytes(base64: string) {
   return Uint8Array.from(atob(base64), (char) => char.charCodeAt(0));
+}
+
+function encodeVectorAuthorization(identity: Uint8Array, signature: Uint8Array) {
+  return `${bytesToBase64(identity)}.${bytesToBase64(signature)}`;
+}
+
+function decodeVectorAuthorization(value: string) {
+  const [identityBase64, signatureBase64] = value.split(".");
+  if (!identityBase64 || !signatureBase64) throw new Error("Swap offer is missing Vector authorization data.");
+  return {
+    identity: base64ToBytes(identityBase64),
+    signature: base64ToBytes(signatureBase64),
+  };
 }
 
 function bytesToBase58(bytes: Uint8Array) {

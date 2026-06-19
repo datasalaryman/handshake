@@ -1,5 +1,5 @@
 import { Address, Connection } from "@solana/web3.js";
-import { ED25519, findVectorPda } from "../src/lib/vector";
+import { deterministicIdentity, findVectorPda } from "../src/lib/vector";
 
 const rpcUrl = process.env.SURFNET_RPC_URL ?? process.env.BUN_PUBLIC_SOLANA_LOCALNET_RPC_URL ?? "http://127.0.0.1:8899";
 const args = process.argv.slice(2);
@@ -24,12 +24,13 @@ if (caseFlags.length !== 1 || !makerAddressArg || !takerAddressArg) {
 const connection = new Connection(rpcUrl, "confirmed");
 const makerAddress = new Address(makerAddressArg);
 const takerAddress = new Address(takerAddressArg);
-const [makerVectorPda] = findVectorPda(ED25519, makerAddress.toBytes());
+const makerVectorIdentity = deterministicIdentity(makerAddress);
+const [makerVectorPda] = findVectorPda(makerVectorIdentity);
 
 await airdrop(connection, makerAddress, solAirdropLamports);
 await airdrop(connection, takerAddress, solAirdropLamports);
 if (makerTokenMint !== wrappedSolMint) {
-  await setTokenAccount(makerVectorPda, new Address(makerTokenMint), makerTokenAmount);
+  await setTokenAccount(makerVectorPda!, new Address(makerTokenMint), makerTokenAmount);
 }
 if (takerTokenMint !== wrappedSolMint) {
   await setTokenAccount(takerAddress, new Address(takerTokenMint), takerTokenAmount);
@@ -42,7 +43,7 @@ console.log(`Taker wallet SOL: ${takerAddress.toString()}`);
 if (makerTokenMint === wrappedSolMint) {
   console.log(`Maker sends SOL: native SOL was airdropped to ${makerAddress.toString()}`);
 } else {
-  console.log(`Maker Vector PDA ${makerTokenMint}: ${makerVectorPda.toString()} amount ${makerTokenAmount.toString()}`);
+  console.log(`Maker Vector PDA ${makerTokenMint}: ${makerVectorPda!.toString()} amount ${makerTokenAmount.toString()}`);
 }
 if (takerTokenMint === wrappedSolMint) {
   console.log(`Taker sends SOL: native SOL was airdropped to ${takerAddress.toString()}`);
