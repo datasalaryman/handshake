@@ -25,7 +25,7 @@ const wrappedSolMintAddress = "So11111111111111111111111111111111111111112";
 const tokenProgramId = new Address(TOKEN_PROGRAM_ADDRESS);
 
 export async function ensureVectorAccountInitialized(connection: Connection, makerAddress: Address, vectorKeypair: VectorKeypair, identity: Uint8Array, walletName: string | undefined, cluster: AppCluster, setStatus: (status: string) => void) {
-  await assertVectorProgramDeployed(connection);
+  await assertVectorProgramDeployed(connection, cluster);
   const [makerVectorPda] = findVectorPda(identity);
   const existingVectorAccount = await connection.getAccountInfo(makerVectorPda);
   if (existingVectorAccount) return undefined;
@@ -190,10 +190,11 @@ function createSyncNativeInstruction(account: Address) {
   return toWeb3Instruction(getSyncNativeInstruction({ account: toKitAddress(account) }));
 }
 
-async function assertVectorProgramDeployed(connection: Connection) {
+async function assertVectorProgramDeployed(connection: Connection, cluster: AppCluster) {
   const programAccount = await connection.getAccountInfo(VECTOR.programId);
   if (!programAccount?.executable) {
-    throw new Error("Vector program is not available on this RPC. Restart Surfpool with: bun run surfnet");
+    if (cluster.id === "solana:localnet") throw new Error("Vector program is not available on this RPC. Restart Surfpool with: bun run surfnet");
+    throw new Error(`Vector program ${VECTOR.programId.toString()} is not available on ${cluster.label}. Check that your RPC is pointed at mainnet and has the Vector program deployed.`);
   }
 }
 

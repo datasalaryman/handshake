@@ -17,8 +17,11 @@ export type Scheme = {
   storedIdentityLen: number;
 };
 
+const mainnetVectorProgram = "DzqGka5o9CjrTgP9QKUrXnxMxCLkWkTMiESuDqELgBwE";
+const vectorProgram = import.meta.env.DEV ? import.meta.env.VECTOR_PROGRAM ?? mainnetVectorProgram : mainnetVectorProgram;
+
 export const VECTOR: Scheme = {
-  programId: new Address(import.meta.env.VECTOR_PROGRAM ?? "HdkE3dPYgCRZJgLv64mbFmojyCprUim8VRXzK2wR6Qgm"),
+  programId: new Address(vectorProgram),
   signatureLen: FALCON_SIGNATURE_LEN,
   identityLen: 32,
   storedIdentityLen: 32 + 1 + FALCON_PREPARED_PUBKEY_LEN,
