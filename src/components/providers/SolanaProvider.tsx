@@ -1,4 +1,5 @@
-import { createSolanaDevnet, createSolanaLocalnet, createSolanaMainnet, createSolanaTestnet } from "@wallet-ui/react";
+import { WalletUi, createSolanaDevnet, createSolanaLocalnet, createSolanaMainnet, createSolanaTestnet, createWalletUiConfig } from "@wallet-ui/react";
+import type { ReactNode } from "react";
 
 export const isDevelopmentEnvironment = import.meta.env.VERCEL_ENV === "development";
 
@@ -16,3 +17,11 @@ export const appClusters = isDevelopmentEnvironment ? [
 export const defaultCluster = isDevelopmentEnvironment ? appClusters[0]! : mainnetCluster;
 
 export type AppCluster = (typeof appClusters)[number];
+
+const config = createWalletUiConfig({
+  clusters: appClusters,
+});
+
+export function SolanaProvider({ children }: { children: ReactNode }) {
+  return <WalletUi config={config}>{children}</WalletUi>;
+}
