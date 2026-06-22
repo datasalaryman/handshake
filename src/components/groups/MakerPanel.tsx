@@ -68,6 +68,7 @@ export function MakerPanel() {
     setConnectedWalletName(undefined);
   }
   const address = account?.address ?? connectedAddress;
+  const makerAddressValue = address?.toString() ?? "";
   const cluster = appClusters.find((clusterOption) => clusterOption.id === clusterId) ?? defaultCluster;
   const isConnected = connected || Boolean(connectedAddress);
 
@@ -90,15 +91,22 @@ export function MakerPanel() {
     };
   }, [connectedWalletName]);
 
+  useEffect(() => {
+    setGeneratedLink(undefined);
+    setConfirmedSignature(undefined);
+    setCopiedLink(false);
+    setStatus(undefined);
+  }, [makerAddressValue, form.makerSendTokenAddress, form.makerSendAmount, form.takerAddress, form.takerSendTokenAddress, form.takerSendAmount]);
+
   async function createMakerSignedLink() {
-    if (!address) throw new Error("Connect the maker wallet first.");
+    if (!makerAddressValue) throw new Error("Connect the maker wallet first.");
     setBusy(true);
     setError(undefined);
     setCopiedLink(false);
     setStatus("Building maker-authorized swap...");
 
     try {
-      const makerAddress = new Address(address);
+      const makerAddress = new Address(makerAddressValue);
       const takerAddress = new Address(form.takerAddress);
       const connection = new Connection(cluster.url, "confirmed");
       const vectorKeypair = createDeterministicKeypair(makerAddress);
@@ -123,7 +131,7 @@ export function MakerPanel() {
       const link = new URL(`/swap/${offer.id}`, window.location.origin);
       setGeneratedLink(link.toString());
       setConfirmedSignature(wrapSignature ?? initializeSignature);
-      setStatus(`Maker signed the Vector digest for ${passthroughIx.keys.length} passthrough accounts. Link is ready for the taker.`);
+      setStatus("Copy the swap link and send it to the other party so they can complete the handshake.");
     } catch (error) {
       setError(error instanceof Error ? error.message : "Could not create maker-signed swap link.");
     } finally {
@@ -149,6 +157,10 @@ export function MakerPanel() {
     setCopiedLink(true);
   }
 
+  const takerAddressMatchesMaker = Boolean(makerAddressValue && form.takerAddress.trim() === makerAddressValue);
+  const takerAddressError = takerAddressMatchesMaker ? "Taker address must be different from the maker address." : undefined;
+  const canCreateSwapLink = Boolean(form.takerAddress.trim() && form.makerSendAmount.trim() && form.takerSendAmount.trim() && !takerAddressError);
+
   return (
     <div className="rounded-3xl border border-white/10 bg-white/[0.04] p-5 shadow-2xl shadow-violet-950/30 backdrop-blur sm:p-6">
       <div className="mb-6 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
@@ -171,7 +183,7 @@ export function MakerPanel() {
       </div>
 
       <form className="mt-5 grid gap-4" onSubmit={(event) => event.preventDefault()}>
-        <Field label="Taker address" value={form.takerAddress} onChange={(takerAddress) => setForm((current) => ({ ...current, takerAddress }))} />
+        <Field label="Handshake with" value={form.takerAddress} onChange={(takerAddress) => setForm((current) => ({ ...current, takerAddress }))} error={takerAddressError} />
         <SwapSideCard title="Send">
           <TokenPickerButton token={makerSendToken} tokenAddress={form.makerSendTokenAddress} placeholder="Token" onClick={() => setTokenPickerMode("maker-send")} />
           <Field label="Amount to send" hideLabel value={form.makerSendAmount} onChange={(makerSendAmount) => setForm((current) => ({ ...current, makerSendAmount }))} inputMode="decimal" placeholder="0.00" />
@@ -199,11 +211,11 @@ export function MakerPanel() {
       }} /> : null}
 
       <div className="mt-5 flex flex-col gap-3 sm:flex-row">
-        <ActionButton disabled={busy || !isConnected || Boolean(generatedLink)} onClick={() => void createMakerSignedLink()}>Create swap link</ActionButton>
+        <ActionButton disabled={busy || !isConnected || Boolean(generatedLink) || !canCreateSwapLink} onClick={() => void createMakerSignedLink()}>Create swap link</ActionButton>
         {confirmedSignature ? <SolanaExplorerButton signature={confirmedSignature} cluster={cluster} /> : null}
         {generatedLink ? <button className="inline-flex items-center justify-center gap-2 rounded-xl border border-white/10 bg-black/25 px-4 py-3 text-sm font-semibold text-white transition hover:border-violet-200/40 hover:bg-white/10" type="button" onClick={() => void copyGeneratedLink()}>
           {copiedLink ? <Check className="size-4" aria-hidden="true" /> : <Copy className="size-4" aria-hidden="true" />}
-          {copiedLink ? "Copied" : "Copy link"}
+          {copiedLink ? "Copied" : "Copy Swap Link"}
         </button> : null}
       </div>
 
