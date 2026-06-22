@@ -1,3 +1,4 @@
+import { useQuery } from "@tanstack/react-query";
 import { useDeferredValue, useEffect, useState } from "react";
 import { TokenIcon } from "@/components/units/TokenIcon";
 import { orpc } from "@/lib/orpc";
@@ -6,38 +7,14 @@ import type { TokenSearchResult } from "@/lib/wallet-types";
 export function TokenPickerModal({ selectedToken, title, onClose, onSelect }: { selectedToken: TokenSearchResult | undefined; title: string; onClose: () => void; onSelect: (token: TokenSearchResult) => void }) {
   const [query, setQuery] = useState(selectedToken?.symbol ?? selectedToken?.address ?? "SOL");
   const deferredQuery = useDeferredValue(query);
-  const [results, setResults] = useState<TokenSearchResult[]>([]);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string>();
-
-  useEffect(() => {
-    const trimmedQuery = deferredQuery.trim();
-    if (!trimmedQuery) {
-      setResults([]);
-      return;
-    }
-
-    let cancelled = false;
-    setLoading(true);
-    setError(undefined);
-
-    async function searchTokens() {
-      try {
-        const tokens = await orpc.tokens.search({ query: trimmedQuery });
-        if (!cancelled) setResults(tokens as TokenSearchResult[]);
-      } catch (error) {
-        if (!cancelled) setError(error instanceof Error ? error.message : "Could not search tokens.");
-      } finally {
-        if (!cancelled) setLoading(false);
-      }
-    }
-
-    const timeout = window.setTimeout(searchTokens, 180);
-    return () => {
-      cancelled = true;
-      window.clearTimeout(timeout);
-    };
-  }, [deferredQuery]);
+  const trimmedQuery = deferredQuery.trim();
+  const tokenSearchQuery = useQuery({
+    queryKey: ["tokens", "search", trimmedQuery],
+    queryFn: async () => (await orpc.tokens.search({ query: trimmedQuery })) as TokenSearchResult[],
+    enabled: Boolean(trimmedQuery),
+  });
+  const results = trimmedQuery ? (tokenSearchQuery.data ?? []) : [];
+  const error = tokenSearchQuery.error instanceof Error ? tokenSearchQuery.error.message : tokenSearchQuery.error ? "Could not search tokens." : undefined;
 
   useEffect(() => {
     function closeOnEscape(event: KeyboardEvent) {
@@ -71,9 +48,9 @@ export function TokenPickerModal({ selectedToken, title, onClose, onSelect }: { 
           </label>
 
           <div className="mt-4 max-h-[420px] overflow-y-auto pr-1">
-            {loading ? <p className="rounded-2xl border border-white/10 bg-white/5 p-4 text-sm text-slate-300">Searching Jupiter tokens...</p> : null}
+            {tokenSearchQuery.isFetching ? <p className="rounded-2xl border border-white/10 bg-white/5 p-4 text-sm text-slate-300">Searching Jupiter tokens...</p> : null}
             {error ? <p className="rounded-2xl border border-red-300/20 bg-red-300/10 p-4 text-sm text-red-100">{error}</p> : null}
-            {!loading && !error && results.length === 0 ? <p className="rounded-2xl border border-white/10 bg-white/5 p-4 text-sm text-slate-300">No tokens found.</p> : null}
+            {!tokenSearchQuery.isFetching && !error && results.length === 0 ? <p className="rounded-2xl border border-white/10 bg-white/5 p-4 text-sm text-slate-300">No tokens found.</p> : null}
             <div className="grid gap-2">
               {results.map((token) => (
                 <button className="flex items-center justify-between gap-3 rounded-2xl border border-white/10 bg-white/[0.03] p-3 text-left transition hover:border-violet-300/50 hover:bg-white/[0.08]" key={token.address} type="button" onClick={() => onSelect(token)}>

@@ -1,6 +1,5 @@
 import { ClientOnly, createFileRoute } from "@tanstack/react-router";
 import { MakerPanel } from "@/components/groups/MakerPanel";
-import { SolanaProvider } from "@/components/providers/SolanaProvider";
 
 export const Route = createFileRoute("/")({
   component: Home,
@@ -11,9 +10,7 @@ function Home() {
     <main className="min-h-screen bg-[#06070d] px-4 py-8 text-white sm:px-6 lg:px-8">
       <section className="mx-auto flex min-h-[calc(100vh-4rem)] w-full max-w-3xl items-center justify-center">
         <ClientOnly fallback={<MakerPanelSkeleton />}>
-          <SolanaProvider>
-            <MakerPanel />
-          </SolanaProvider>
+          <MakerPanel />
         </ClientOnly>
       </section>
     </main>

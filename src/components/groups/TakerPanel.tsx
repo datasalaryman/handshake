@@ -1,3 +1,4 @@
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Address, Connection, Transaction } from "@solana/web3.js";
 import { useWalletUi } from "@wallet-ui/react";
 import { useEffect, useState } from "react";
@@ -11,27 +12,33 @@ import { orpc } from "@/lib/orpc";
 import { buildSwapAuthorization, decodeVectorAuthorization, signAndSendWalletTransaction, simulateTransaction } from "@/lib/swap-transactions";
 import { createAdvanceInstruction } from "@/lib/vector";
 import { getCurrentWalletAddress } from "@/lib/wallet-adapters";
-import type { SwapOffer } from "@/orpc/schema";
 
 export function TakerPanel({ swapId }: { swapId: string }) {
+  const queryClient = useQueryClient();
   const { account, connected, disconnect, wallets } = useWalletUi();
-  const [clusterId, setClusterId] = useState<AppCluster["id"]>(defaultCluster.id);
+  const [selectedClusterId, setSelectedClusterId] = useState<AppCluster["id"]>();
   const [connectedWalletName, setConnectedWalletName] = useState<string>();
   const [connectedAddress, setConnectedAddress] = useState<string>();
-  const [loadedOffer, setLoadedOffer] = useState<SwapOffer>();
   const [status, setStatus] = useState<string>();
   const [error, setError] = useState<string>();
   const [busy, setBusy] = useState(false);
+  const swapOfferQuery = useQuery({
+    queryKey: ["swapOffers", swapId],
+    queryFn: () => orpc.swapOffers.get({ id: swapId }),
+  });
+  const loadedOffer = swapOfferQuery.data;
+  const offerClusterId = loadedOffer?.clusterId as AppCluster["id"] | undefined;
+  const clusterId = selectedClusterId ?? (appClusters.some((clusterOption) => clusterOption.id === offerClusterId) ? offerClusterId : defaultCluster.id);
+  if (connected && (connectedAddress || connectedWalletName)) {
+    setConnectedAddress(undefined);
+    setConnectedWalletName(undefined);
+  }
   const address = account?.address ?? connectedAddress;
   const cluster = appClusters.find((clusterOption) => clusterOption.id === clusterId) ?? defaultCluster;
   const isConnected = connected || Boolean(connectedAddress);
-
-  useEffect(() => {
-    if (connected) {
-      setConnectedAddress(undefined);
-      setConnectedWalletName(undefined);
-    }
-  }, [connected]);
+  const loadError = swapOfferQuery.error instanceof Error ? swapOfferQuery.error.message : swapOfferQuery.error ? "Could not load swap offer." : undefined;
+  const displayStatus = status ?? (swapOfferQuery.isLoading ? "Loading maker-signed swap offer..." : loadedOffer ? "Loaded maker-signed swap offer." : undefined);
+  const displayError = error ?? loadError;
 
   useEffect(() => {
     if (!connectedWalletName) return;
@@ -51,22 +58,6 @@ export function TakerPanel({ swapId }: { swapId: string }) {
       window.clearInterval(interval);
     };
   }, [connectedWalletName]);
-
-  useEffect(() => {
-    async function loadSwap() {
-      try {
-        const offer = await orpc.swapOffers.get({ id: swapId });
-        setLoadedOffer(offer);
-        const offerClusterId = offer.clusterId as AppCluster["id"];
-        setClusterId(appClusters.some((clusterOption) => clusterOption.id === offerClusterId) ? offerClusterId : defaultCluster.id);
-        setStatus("Loaded maker-signed swap offer.");
-      } catch (error) {
-        setError(error instanceof Error ? error.message : "Could not load swap offer.");
-      }
-    }
-
-    void loadSwap();
-  }, [swapId]);
 
   async function executeLoadedSwap() {
     if (!loadedOffer) throw new Error("Open a maker-generated swap link first.");
@@ -88,7 +79,7 @@ export function TakerPanel({ swapId }: { swapId: string }) {
       await simulateTransaction(connection, tx);
       const submittedSignature = await signAndSendWalletTransaction(connectedWalletName, tx, cluster, connection);
       const updatedOffer = await orpc.swapOffers.markSubmitted({ id: loadedOffer.id, submittedSignature });
-      setLoadedOffer(updatedOffer);
+      queryClient.setQueryData(["swapOffers", swapId], updatedOffer);
       setStatus(`Swap submitted: ${submittedSignature}`);
     } catch (error) {
       setError(error instanceof Error ? error.message : "Could not execute swap.");
@@ -105,7 +96,7 @@ export function TakerPanel({ swapId }: { swapId: string }) {
           <h2 className="mt-1 text-2xl font-semibold">Take Vector-signed swap</h2>
         </div>
         <div className="flex flex-wrap gap-2">
-          {isDevelopmentEnvironment ? <ClusterSelector cluster={cluster} onClusterChange={setClusterId} /> : null}
+          {isDevelopmentEnvironment ? <ClusterSelector cluster={cluster} onClusterChange={setSelectedClusterId} /> : null}
           {!isConnected ? <WalletSelector wallets={wallets} onConnect={(walletName, address) => {
             setConnectedWalletName(walletName);
             setConnectedAddress(address);
@@ -125,11 +116,11 @@ export function TakerPanel({ swapId }: { swapId: string }) {
       <SwapDetails offer={loadedOffer} />
 
       <div className="mt-5 grid gap-3">
-        <ActionButton disabled={busy || !isConnected || !loadedOffer || loadedOffer.status === "submitted"} onClick={() => void executeLoadedSwap()}>Take swap</ActionButton>
+        <ActionButton disabled={busy || !isConnected || swapOfferQuery.isLoading || !loadedOffer || loadedOffer.status === "submitted"} onClick={() => void executeLoadedSwap()}>Take swap</ActionButton>
       </div>
 
-      {status ? <p className="mt-4 rounded-2xl border border-emerald-300/20 bg-emerald-300/10 p-4 text-sm text-emerald-100">{status}</p> : null}
-      {error ? <p className="mt-4 rounded-2xl border border-red-300/20 bg-red-300/10 p-4 text-sm text-red-100">{error}</p> : null}
+      {displayStatus ? <p className="mt-4 rounded-2xl border border-emerald-300/20 bg-emerald-300/10 p-4 text-sm text-emerald-100">{displayStatus}</p> : null}
+      {displayError ? <p className="mt-4 rounded-2xl border border-red-300/20 bg-red-300/10 p-4 text-sm text-red-100">{displayError}</p> : null}
     </div>
   );
 }

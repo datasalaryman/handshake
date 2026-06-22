@@ -1,5 +1,7 @@
 import { HeadContent, Outlet, Scripts, createRootRoute } from "@tanstack/react-router";
 import type { ReactNode } from "react";
+import { QueryProvider } from "@/components/providers/QueryProvider";
+import { SolanaProvider } from "@/components/providers/SolanaProvider";
 import appCss from "@/index.css?url";
 
 export const Route = createRootRoute({
@@ -17,7 +19,11 @@ export const Route = createRootRoute({
 function RootComponent() {
   return (
     <RootDocument>
-      <Outlet />
+      <QueryProvider>
+        <SolanaProvider>
+          <Outlet />
+        </SolanaProvider>
+      </QueryProvider>
     </RootDocument>
   );
 }

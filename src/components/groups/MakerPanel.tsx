@@ -59,16 +59,13 @@ export function MakerPanel() {
   const [status, setStatus] = useState<string>();
   const [error, setError] = useState<string>();
   const [busy, setBusy] = useState(false);
+  if (connected && (connectedAddress || connectedWalletName)) {
+    setConnectedAddress(undefined);
+    setConnectedWalletName(undefined);
+  }
   const address = account?.address ?? connectedAddress;
   const cluster = appClusters.find((clusterOption) => clusterOption.id === clusterId) ?? defaultCluster;
   const isConnected = connected || Boolean(connectedAddress);
-
-  useEffect(() => {
-    if (connected) {
-      setConnectedAddress(undefined);
-      setConnectedWalletName(undefined);
-    }
-  }, [connected]);
 
   useEffect(() => {
     if (!connectedWalletName) return;
