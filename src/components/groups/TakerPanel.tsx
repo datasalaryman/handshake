@@ -1,7 +1,7 @@
 import { Address, Connection, Transaction } from "@solana/web3.js";
 import { useWalletUi } from "@wallet-ui/react";
 import { useEffect, useState } from "react";
-import { SolanaProvider, appClusters, defaultCluster, isDevelopmentEnvironment, type AppCluster } from "@/components/providers/SolanaProvider";
+import { appClusters, defaultCluster, isDevelopmentEnvironment, type AppCluster } from "@/components/providers/SolanaProvider";
 import { SwapDetails } from "@/components/groups/SwapDetails";
 import { WalletSelector } from "@/components/groups/WalletSelector";
 import { ActionButton } from "@/components/units/ActionButton";
@@ -14,14 +14,6 @@ import { getCurrentWalletAddress } from "@/lib/wallet-adapters";
 import type { SwapOffer } from "@/orpc/schema";
 
 export function TakerPanel({ swapId }: { swapId: string }) {
-  return (
-    <SolanaProvider>
-      <TakerSwapCard swapId={swapId} />
-    </SolanaProvider>
-  );
-}
-
-function TakerSwapCard({ swapId }: { swapId: string }) {
   const { account, connected, disconnect, wallets } = useWalletUi();
   const [clusterId, setClusterId] = useState<AppCluster["id"]>(defaultCluster.id);
   const [connectedWalletName, setConnectedWalletName] = useState<string>();

@@ -1,7 +1,7 @@
 import { Address, Connection } from "@solana/web3.js";
 import { useWalletUi } from "@wallet-ui/react";
 import { useEffect, useState } from "react";
-import { SolanaProvider, appClusters, defaultCluster, isDevelopmentEnvironment, type AppCluster } from "@/components/providers/SolanaProvider";
+import { appClusters, defaultCluster, isDevelopmentEnvironment, type AppCluster } from "@/components/providers/SolanaProvider";
 import { TokenPickerModal } from "@/components/groups/TokenPickerModal";
 import { WalletSelector } from "@/components/groups/WalletSelector";
 import { ActionButton } from "@/components/units/ActionButton";
@@ -47,14 +47,6 @@ const defaultSwapForm: SwapFormState = {
 };
 
 export function MakerPanel() {
-  return (
-    <SolanaProvider>
-      <MakerSwapCard />
-    </SolanaProvider>
-  );
-}
-
-function MakerSwapCard() {
   const { account, connected, disconnect, wallets } = useWalletUi();
   const [clusterId, setClusterId] = useState<AppCluster["id"]>(defaultCluster.id);
   const [connectedWalletName, setConnectedWalletName] = useState<string>();
