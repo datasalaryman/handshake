@@ -22,6 +22,7 @@ export const swapOffersRouter = {
       takerSendTokenAddress: nonEmptyString,
       takerSendAmount: nonEmptyString,
       vectorSignature: nonEmptyString,
+      makerProofSignature: z.string().trim().optional(),
     }))
     .handler(async ({ input }) => {
       const rows = await getDb().insert(swapOffers).values({
@@ -34,6 +35,7 @@ export const swapOffersRouter = {
         takerSendTokenAddress: input.takerSendTokenAddress,
         takerSendAmount: input.takerSendAmount,
         vectorSignature: input.vectorSignature,
+        makerProofSignature: input.makerProofSignature,
         status: "maker_signed",
       }).returning();
 
@@ -97,6 +99,7 @@ function mapSwapOffer(row: SwapOfferRow | undefined): SwapOffer {
     takerSendTokenAddress: row.takerSendTokenAddress,
     takerSendAmount: row.takerSendAmount,
     vectorSignature: row.vectorSignature,
+    makerProofSignature: row.makerProofSignature ?? undefined,
     status: row.status as SwapStatus,
     createdAt: row.createdAt.toISOString(),
     submittedSignature: row.submittedSignature ?? undefined,

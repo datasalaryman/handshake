@@ -11,6 +11,7 @@ export const swapOffers = pgTable("handshake_swap_offers", {
   takerSendTokenAddress: text("taker_send_token_address").notNull(),
   takerSendAmount: text("taker_send_amount").notNull(),
   vectorSignature: text("vector_signature").notNull(),
+  makerProofSignature: text("maker_proof_signature"),
   status: text("status", { enum: ["maker_signed", "submitted"] }).notNull(),
   submittedSignature: text("submitted_signature"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
@@ -30,6 +31,7 @@ export type SwapOffer = {
   takerSendTokenAddress: string;
   takerSendAmount: string;
   vectorSignature: string;
+  makerProofSignature?: string;
   status: SwapStatus;
   createdAt: string;
   submittedSignature?: string;

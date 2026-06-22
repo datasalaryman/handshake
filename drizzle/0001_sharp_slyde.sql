@@ -1,0 +1,1 @@
+ALTER TABLE "handshake_swap_offers" ADD COLUMN "maker_proof_signature" text;

@@ -5,7 +5,7 @@ if (!process.env.DATABASE_URL) throw new Error("DATABASE_URL is required for Dri
 const parsedDatabaseUrl = new URL(process.env.DATABASE_URL);
 
 export default defineConfig({
-  schema: "./src/swaps/schema.ts",
+  schema: "./src/orpc/schema.ts",
   out: "./drizzle",
   dialect: "postgresql",
   tablesFilter: ["handshake_*"],

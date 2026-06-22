@@ -1,0 +1,111 @@
+{
+  "id": "8c4f0cf6-ac2a-49fc-9664-5002a0a4dad7",
+  "prevId": "db14c4f5-b5b5-4e81-bd3f-95e5e7a3ef66",
+  "version": "7",
+  "dialect": "postgresql",
+  "tables": {
+    "public.handshake_swap_offers": {
+      "name": "handshake_swap_offers",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "cluster_id": {
+          "name": "cluster_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "maker_address": {
+          "name": "maker_address",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "maker_send_token_address": {
+          "name": "maker_send_token_address",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "maker_send_amount": {
+          "name": "maker_send_amount",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "taker_address": {
+          "name": "taker_address",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "taker_send_token_address": {
+          "name": "taker_send_token_address",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "taker_send_amount": {
+          "name": "taker_send_amount",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "vector_signature": {
+          "name": "vector_signature",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "maker_proof_signature": {
+          "name": "maker_proof_signature",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "status": {
+          "name": "status",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "submitted_signature": {
+          "name": "submitted_signature",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    }
+  },
+  "enums": {},
+  "schemas": {},
+  "sequences": {},
+  "roles": {},
+  "policies": {},
+  "views": {},
+  "_meta": {
+    "columns": {},
+    "schemas": {},
+    "tables": {}
+  }
+}
