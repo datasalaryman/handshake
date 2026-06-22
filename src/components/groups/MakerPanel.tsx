@@ -1,5 +1,6 @@
 import { Address, Connection } from "@solana/web3.js";
 import { useWalletUi } from "@wallet-ui/react";
+import { ArrowUpDown } from "lucide-react";
 import { useEffect, useState } from "react";
 import { appClusters, defaultCluster, isDevelopmentEnvironment, type AppCluster } from "@/components/providers/SolanaProvider";
 import { TokenPickerModal } from "@/components/groups/TokenPickerModal";
@@ -125,6 +126,18 @@ export function MakerPanel() {
     }
   }
 
+  function swapTokens() {
+    setMakerSendToken(takerSendToken);
+    setTakerSendToken(makerSendToken);
+    setForm((current) => ({
+      ...current,
+      makerSendTokenAddress: current.takerSendTokenAddress,
+      makerSendAmount: current.takerSendAmount,
+      takerSendTokenAddress: current.makerSendTokenAddress,
+      takerSendAmount: current.makerSendAmount,
+    }));
+  }
+
   return (
     <div className="rounded-3xl border border-white/10 bg-white/[0.04] p-5 shadow-2xl shadow-violet-950/30 backdrop-blur sm:p-6">
       <div className="mb-6 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
@@ -156,6 +169,11 @@ export function MakerPanel() {
           <TokenPickerButton token={makerSendToken} tokenAddress={form.makerSendTokenAddress} placeholder="Token" onClick={() => setTokenPickerMode("maker-send")} />
           <Field label="Amount to send" hideLabel value={form.makerSendAmount} onChange={(makerSendAmount) => setForm((current) => ({ ...current, makerSendAmount }))} inputMode="decimal" placeholder="0.00" />
         </SwapSideCard>
+        <div className="relative flex justify-center py-1">
+          <button className="rounded-full border border-white/10 bg-violet-400/15 p-3 text-violet-100 shadow-lg shadow-violet-950/30 transition hover:border-violet-200/40 hover:bg-violet-400/25 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-violet-200" type="button" aria-label="Reverse tokens" onClick={swapTokens}>
+            <ArrowUpDown className="size-5" aria-hidden="true" />
+          </button>
+        </div>
         <SwapSideCard title="Receive">
           <TokenPickerButton token={takerSendToken} tokenAddress={form.takerSendTokenAddress} placeholder="Token" onClick={() => setTokenPickerMode("taker-send")} />
           <Field label="Amount to receive" hideLabel value={form.takerSendAmount} onChange={(takerSendAmount) => setForm((current) => ({ ...current, takerSendAmount }))} inputMode="decimal" placeholder="0.00" />
