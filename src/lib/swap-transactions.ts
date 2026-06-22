@@ -23,6 +23,8 @@ import type { SwapFormState } from "@/lib/wallet-types";
 
 const wrappedSolMintAddress = "So11111111111111111111111111111111111111112";
 const tokenProgramId = new Address(TOKEN_PROGRAM_ADDRESS);
+const transactionConfirmationTimeoutMs = 60_000;
+const transactionConfirmationPollMs = 1_000;
 
 export async function ensureVectorAccountInitialized(connection: Connection, makerAddress: Address, vectorKeypair: VectorKeypair, identity: Uint8Array, walletName: string | undefined, cluster: AppCluster, setStatus: (status: string) => void) {
   await assertVectorProgramDeployed(connection, cluster);
@@ -38,7 +40,6 @@ export async function ensureVectorAccountInitialized(connection: Connection, mak
   );
   await simulateTransaction(connection, tx);
   const signature = await signAndSendWalletTransaction(walletName, tx, cluster, connection);
-  await confirmTransaction(connection, signature);
   return signature;
 }
 
@@ -63,7 +64,6 @@ export async function wrapMakerSolIfNeeded(connection: Connection, makerAddress:
   );
   await simulateTransaction(connection, tx);
   const signature = await signAndSendWalletTransaction(walletName, tx, cluster, connection);
-  await confirmTransaction(connection, signature);
   return signature;
 }
 
@@ -129,7 +129,9 @@ export async function signAndSendWalletTransaction(walletName: string | undefine
     if (cluster.id === "solana:localnet") throw new Error("This wallet only exposed sign-and-send. For Surfnet, use a wallet/account that supports signTransaction, or set the wallet's RPC/network to http://127.0.0.1:8899.");
     const [result] = await signAndSendFeature.signAndSendTransaction({ account, transaction: serialized, chain, options: { commitment: "confirmed" } });
     if (!result?.signature) throw new Error("Wallet did not return a transaction signature.");
-    return bytesToBase58(result.signature);
+    const signature = bytesToBase58(result.signature);
+    await confirmTransaction(connection, signature);
+    return signature;
   }
 
   const provider = getLegacySolanaProvider(walletName);
@@ -140,7 +142,10 @@ export async function signAndSendWalletTransaction(walletName: string | undefine
   if (provider?.signAndSendTransaction) {
     if (cluster.id === "solana:localnet") throw new Error("This wallet only exposed sign-and-send. For Surfnet, use a wallet/account that supports signTransaction, or set the wallet's RPC/network to http://127.0.0.1:8899.");
     const result = await provider.signAndSendTransaction(tx);
-    if (result?.signature) return result.signature;
+    if (result?.signature) {
+      await confirmTransaction(connection, result.signature);
+      return result.signature;
+    }
   }
 
   throw new Error("Connected wallet does not expose Solana transaction signing.");
@@ -253,9 +258,31 @@ function toWeb3Instruction(instruction: { programAddress: KitAddress; accounts?:
 }
 
 async function confirmTransaction(connection: Connection, signature: TransactionSignature) {
-  if (!signature || signature.length < 80) return;
-  const blockhash = await connection.getLatestBlockhash();
-  await connection.confirmTransaction({ signature, ...blockhash }, "confirmed");
+  if (!signature || signature.length < 80) throw new Error("Wallet returned an invalid transaction signature.");
+
+  const deadline = Date.now() + transactionConfirmationTimeoutMs;
+  let lastRpcError: unknown;
+
+  while (Date.now() < deadline) {
+    try {
+      const statuses = await connection.getSignatureStatuses([signature], { searchTransactionHistory: true });
+      const status = statuses.value[0];
+      if (status?.err) throw new Error(`Transaction failed: ${stringifyRpcError(status.err)}`);
+      if (status?.confirmationStatus === "confirmed" || status?.confirmationStatus === "finalized" || status?.confirmations === null) return;
+
+      const transaction = await connection.getTransaction(signature, { commitment: "confirmed", maxSupportedTransactionVersion: 0 });
+      if (transaction?.meta?.err) throw new Error(`Transaction failed: ${stringifyRpcError(transaction.meta.err)}`);
+      if (transaction) return;
+    } catch (error) {
+      if (error instanceof Error && error.message.startsWith("Transaction failed:")) throw error;
+      lastRpcError = error;
+    }
+
+    await sleep(transactionConfirmationPollMs);
+  }
+
+  const suffix = lastRpcError instanceof Error ? ` Last RPC error: ${lastRpcError.message}` : "";
+  throw new Error(`Transaction ${signature} was submitted, but this RPC did not return confirmed status before timing out. Check the signature in Solana Explorer or retry with a healthier RPC endpoint.${suffix}`);
 }
 
 async function sendSignedTransaction(connection: Connection, signedTransaction: Uint8Array, cluster: AppCluster) {
@@ -265,6 +292,10 @@ async function sendSignedTransaction(connection: Connection, signedTransaction: 
   });
   await confirmTransaction(connection, signature);
   return signature;
+}
+
+function sleep(ms: number) {
+  return new Promise((resolve) => globalThis.setTimeout(resolve, ms));
 }
 
 function bytesToBase64(bytes: Uint8Array) {
