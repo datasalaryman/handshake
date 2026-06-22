@@ -24,18 +24,18 @@ import {
   HAWK_SIGNATURE_LEN,
   HAWK_PREPARED_PUBKEY_LEN,
   INITIALIZE_DISCRIMINATOR,
-} from "../scheme.js";
+} from "@/lib/vector-sdk/scheme.js";
 import {
   createInitializeInstruction,
   createAdvanceInstruction,
-} from "../instructions.js";
-import { advanceVectorDigest } from "../digest.js";
+} from "@/lib/vector-sdk/instructions.js";
+import { advanceVectorDigest } from "@/lib/vector-sdk/digest.js";
 
 export {
   HAWK_PUBKEY_LEN,
   HAWK_SIGNATURE_LEN,
   HAWK_PREPARED_PUBKEY_LEN,
-} from "../scheme.js";
+} from "@/lib/vector-sdk/scheme.js";
 
 /** Hawk-512 secret key length (`@blueshift-gg/hawk512` encoding). */
 export const HAWK_SECRET_KEY_LEN = 184;

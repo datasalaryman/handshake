@@ -8,12 +8,12 @@
 import { Address, TransactionInstruction } from "@solana/web3.js";
 import { ed25519 } from "@noble/curves/ed25519.js";
 
-import { Scheme } from "../scheme.js";
+import { Scheme } from "@/lib/vector-sdk/scheme.js";
 import {
   createInitializeInstruction,
   createAdvanceInstruction,
-} from "../instructions.js";
-import { advanceVectorDigest } from "../digest.js";
+} from "@/lib/vector-sdk/instructions.js";
+import { advanceVectorDigest } from "@/lib/vector-sdk/digest.js";
 
 /** Ed25519 — identity is the 32-byte public key. */
 export const ED25519: Scheme = {

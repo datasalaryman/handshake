@@ -21,18 +21,18 @@ import {
   FALCON_PUBKEY_LEN,
   FALCON_SIGNATURE_LEN,
   FALCON_PREPARED_PUBKEY_LEN,
-} from "../scheme.js";
+} from "@/lib/vector-sdk/scheme.js";
 import {
   createInitializeInstruction,
   createAdvanceInstruction,
-} from "../instructions.js";
-import { advanceVectorDigest } from "../digest.js";
+} from "@/lib/vector-sdk/instructions.js";
+import { advanceVectorDigest } from "@/lib/vector-sdk/digest.js";
 
 export {
   FALCON_PUBKEY_LEN,
   FALCON_SIGNATURE_LEN,
   FALCON_PREPARED_PUBKEY_LEN,
-} from "../scheme.js";
+} from "@/lib/vector-sdk/scheme.js";
 
 /** Falcon-512 secret key length (`@noble/post-quantum` encoding). */
 export const FALCON_SECRET_KEY_LEN = 1281;

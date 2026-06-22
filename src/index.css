@@ -1,4 +1,4 @@
-@import "../styles/globals.css";
+@import "@/styles/globals.css";
 @import "@wallet-ui/tailwind/index.css";
 
 @layer base {

@@ -8,12 +8,12 @@
 import { Address, TransactionInstruction } from "@solana/web3.js";
 import { secp256k1 } from "@noble/curves/secp256k1.js";
 
-import { Scheme, SECP256K1_COMPRESSED_PUBKEY_LEN } from "../scheme.js";
+import { Scheme, SECP256K1_COMPRESSED_PUBKEY_LEN } from "@/lib/vector-sdk/scheme.js";
 import {
   createInitializeInstruction,
   createAdvanceInstruction,
-} from "../instructions.js";
-import { advanceVectorDigest } from "../digest.js";
+} from "@/lib/vector-sdk/instructions.js";
+import { advanceVectorDigest } from "@/lib/vector-sdk/digest.js";
 
 /** Plain secp256k1 ECDSA — identity is the 33-byte compressed pubkey. */
 export const SECP256K1: Scheme = {

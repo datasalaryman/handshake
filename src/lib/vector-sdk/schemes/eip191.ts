@@ -10,12 +10,12 @@ import { Address, TransactionInstruction } from "@solana/web3.js";
 import { secp256k1 } from "@noble/curves/secp256k1.js";
 import { keccak_256 } from "@noble/hashes/sha3.js";
 
-import { Scheme } from "../scheme.js";
+import { Scheme } from "@/lib/vector-sdk/scheme.js";
 import {
   createInitializeInstruction,
   createAdvanceInstruction,
-} from "../instructions.js";
-import { advanceVectorDigest } from "../digest.js";
+} from "@/lib/vector-sdk/instructions.js";
+import { advanceVectorDigest } from "@/lib/vector-sdk/digest.js";
 
 /** secp256k1 ECDSA + EIP-191 envelope — identity is the 20-byte ETH address. */
 export const EIP191: Scheme = {

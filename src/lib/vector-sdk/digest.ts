@@ -7,11 +7,11 @@
 import { createHash } from "crypto";
 import { Address, TransactionInstruction } from "@solana/web3.js";
 
-import { Scheme, readU16LE, writeU16LE } from "./scheme.js";
+import { Scheme, readU16LE, writeU16LE } from "@/lib/vector-sdk/scheme.js";
 import {
   createAdvanceInstruction,
   constructInstructionsData,
-} from "./instructions.js";
+} from "@/lib/vector-sdk/instructions.js";
 
 /**
  * Promote instruction-level account flags to message-level flags, matching

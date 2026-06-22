@@ -11,12 +11,12 @@ import {
 import { ChevronDown } from "lucide-react";
 import { WalletUiIcon, useWalletUi, type UiWallet } from "@wallet-ui/react";
 import { useDeferredValue, useEffect, useState } from "react";
-import { orpc } from "../lib/orpc";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../components/ui/select";
-import { VECTOR, createAdvanceInstruction, createCloseSubinstruction, createDeterministicKeypair, createInitializeInstruction, createPassthroughInstruction, findVectorPda, signAdvanceInstruction, vectorIdentity, type VectorKeypair } from "../lib/vector";
-import type { SwapOffer } from "../orpc/schema";
-import { appClusters, defaultCluster, isDevelopmentEnvironment, type AppCluster } from "./clusters";
-import { SolanaProvider } from "./SolanaProvider";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { orpc } from "@/lib/orpc";
+import { VECTOR, createAdvanceInstruction, createCloseSubinstruction, createDeterministicKeypair, createInitializeInstruction, createPassthroughInstruction, findVectorPda, signAdvanceInstruction, vectorIdentity, type VectorKeypair } from "@/lib/vector";
+import type { SwapOffer } from "@/orpc/schema";
+import { appClusters, defaultCluster, isDevelopmentEnvironment, type AppCluster } from "@/wallet/clusters";
+import { SolanaProvider } from "@/wallet/SolanaProvider";
 
 type SwapFormState = {
   makerSendTokenAddress: string;

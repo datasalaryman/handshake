@@ -1,6 +1,6 @@
 import { drizzle } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";
-import * as schema from "../orpc/schema";
+import * as schema from "@/orpc/schema";
 
 type Database = ReturnType<typeof drizzle<typeof schema>>;
 

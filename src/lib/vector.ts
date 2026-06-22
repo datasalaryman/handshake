@@ -1,14 +1,14 @@
 import { Address, TransactionInstruction, type AccountMeta } from "@solana/web3.js";
 import { falcon512 as nobleFalcon } from "@noble/post-quantum/falcon.js";
-import { advanceVectorDigest as sdkAdvanceVectorDigest } from "./vector-sdk/digest";
+import { advanceVectorDigest as sdkAdvanceVectorDigest } from "@/lib/vector-sdk/digest";
 import {
   createAdvanceInstruction as sdkCreateAdvanceInstruction,
   createCloseSubinstruction as sdkCreateCloseSubinstruction,
   createInitializeInstruction as sdkCreateInitializeInstruction,
   createPassthroughInstruction as sdkCreatePassthroughInstruction,
-} from "./vector-sdk/instructions";
-import { findVectorPda as sdkFindVectorPda, type Scheme as SdkScheme } from "./vector-sdk/scheme";
-import { FALCON_PUBKEY_LEN, FALCON_PREPARED_PUBKEY_LEN, FALCON_SIGNATURE_LEN, sha256 } from "./vector-sdk/scheme";
+} from "@/lib/vector-sdk/instructions";
+import { findVectorPda as sdkFindVectorPda, type Scheme as SdkScheme } from "@/lib/vector-sdk/scheme";
+import { FALCON_PUBKEY_LEN, FALCON_PREPARED_PUBKEY_LEN, FALCON_SIGNATURE_LEN, sha256 } from "@/lib/vector-sdk/scheme";
 
 export type Scheme = {
   programId: Address;

@@ -36,13 +36,13 @@
  * are).
  */
 
-export * from "./scheme.js";
-export * from "./instructions.js";
-export * from "./digest.js";
+export * from "@/lib/vector-sdk/scheme.js";
+export * from "@/lib/vector-sdk/instructions.js";
+export * from "@/lib/vector-sdk/digest.js";
 
-export * from "./schemes/ed25519.js";
-export * from "./schemes/eip191.js";
-export * from "./schemes/secp256k1.js";
+export * from "@/lib/vector-sdk/schemes/ed25519.js";
+export * from "@/lib/vector-sdk/schemes/eip191.js";
+export * from "@/lib/vector-sdk/schemes/secp256k1.js";
 
 // Falcon/Hawk: re-export only the scheme-unique symbols. The wire-size
 // constants come from `./scheme.js` above (re-exporting them again via
@@ -56,8 +56,8 @@ export {
   falcon512PublicKey,
   createInitializeFalcon512,
   signAdvanceInstructionFalcon512,
-} from "./schemes/falcon512.js";
-export type { Falcon512Keypair } from "./schemes/falcon512.js";
+} from "@/lib/vector-sdk/schemes/falcon512.js";
+export type { Falcon512Keypair } from "@/lib/vector-sdk/schemes/falcon512.js";
 export {
   HAWK512,
   HAWK_SECRET_KEY_LEN,
@@ -67,5 +67,5 @@ export {
   createHawk512StoreWire,
   createHawk512Finalize,
   signAdvanceInstructionHawk512,
-} from "./schemes/hawk512.js";
-export type { Hawk512Keypair } from "./schemes/hawk512.js";
+} from "@/lib/vector-sdk/schemes/hawk512.js";
+export type { Hawk512Keypair } from "@/lib/vector-sdk/schemes/hawk512.js";

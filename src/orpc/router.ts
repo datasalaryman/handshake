@@ -1,8 +1,8 @@
 import { os } from "@orpc/server";
 import { eq } from "drizzle-orm";
 import { z } from "zod";
-import { getDb } from "../db";
-import { swapOffers, tokenSearchResultSchema, type SwapOffer, type SwapOfferRow, type SwapStatus } from "./schema";
+import { getDb } from "@/db";
+import { swapOffers, tokenSearchResultSchema, type SwapOffer, type SwapOfferRow, type SwapStatus } from "@/orpc/schema";
 
 const nonEmptyString = z.string().trim().min(1);
 

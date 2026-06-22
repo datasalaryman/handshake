@@ -1,5 +1,5 @@
 import { Address, Connection } from "@solana/web3.js";
-import { deterministicIdentity, findVectorPda } from "../src/lib/vector";
+import { deterministicIdentity, findVectorPda } from "@/lib/vector";
 
 const rpcUrl = process.env.SURFNET_RPC_URL ?? process.env.BUN_PUBLIC_SOLANA_LOCALNET_RPC_URL ?? "http://127.0.0.1:8899";
 const args = process.argv.slice(2);

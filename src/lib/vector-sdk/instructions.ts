@@ -21,7 +21,7 @@ import {
   CLOSE_DISCRIMINATOR,
   PASSTHROUGH_DISCRIMINATOR,
   WITHDRAW_DISCRIMINATOR,
-} from "./scheme.js";
+} from "@/lib/vector-sdk/scheme.js";
 
 // ── Initialize ───────────────────────────────────────────────────────
 

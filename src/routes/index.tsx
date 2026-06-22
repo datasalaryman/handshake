@@ -1,6 +1,6 @@
 import { ClientOnly, createFileRoute } from "@tanstack/react-router";
-import "../lib/browserGlobals";
-import { WalletPanel } from "../wallet/WalletPanel";
+import "@/lib/browserGlobals";
+import { WalletPanel } from "@/wallet/WalletPanel";
 
 export const Route = createFileRoute("/")({
   component: Home,

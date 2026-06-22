@@ -1,7 +1,7 @@
 import { onError } from "@orpc/server";
 import { RPCHandler } from "@orpc/server/fetch";
 import { createFileRoute } from "@tanstack/react-router";
-import { appRouter } from "../../orpc/router";
+import { appRouter } from "@/orpc/router";
 
 const handler = new RPCHandler(appRouter, {
   interceptors: [
