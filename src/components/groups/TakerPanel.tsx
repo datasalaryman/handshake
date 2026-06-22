@@ -8,6 +8,7 @@ import { WalletSelector } from "@/components/groups/WalletSelector";
 import { ActionButton } from "@/components/units/ActionButton";
 import { ClusterSelector } from "@/components/units/ClusterSelector";
 import { InfoRow } from "@/components/units/InfoRow";
+import { SolanaExplorerButton } from "@/components/units/SolanaExplorerButton";
 import { orpc } from "@/lib/orpc";
 import { buildSwapAuthorization, decodeVectorAuthorization, signAndSendWalletTransaction, simulateTransaction } from "@/lib/swap-transactions";
 import { createAdvanceInstruction } from "@/lib/vector";
@@ -36,6 +37,7 @@ export function TakerPanel({ swapId }: { swapId: string }) {
   const address = account?.address ?? connectedAddress;
   const cluster = appClusters.find((clusterOption) => clusterOption.id === clusterId) ?? defaultCluster;
   const isConnected = connected || Boolean(connectedAddress);
+  const submittedSignature = loadedOffer?.submittedSignature;
   const loadError = swapOfferQuery.error instanceof Error ? swapOfferQuery.error.message : swapOfferQuery.error ? "Could not load swap offer." : undefined;
   const displayStatus = status ?? (swapOfferQuery.isLoading ? "Loading maker-signed swap offer..." : loadedOffer ? "Loaded maker-signed swap offer." : undefined);
   const displayError = error ?? loadError;
@@ -80,7 +82,7 @@ export function TakerPanel({ swapId }: { swapId: string }) {
       const submittedSignature = await signAndSendWalletTransaction(connectedWalletName, tx, cluster, connection);
       const updatedOffer = await orpc.swapOffers.markSubmitted({ id: loadedOffer.id, submittedSignature });
       queryClient.setQueryData(["swapOffers", swapId], updatedOffer);
-      setStatus(`Swap submitted: ${submittedSignature}`);
+      setStatus(undefined);
     } catch (error) {
       setError(error instanceof Error ? error.message : "Could not execute swap.");
     } finally {
@@ -115,8 +117,9 @@ export function TakerPanel({ swapId }: { swapId: string }) {
 
       <SwapDetails offer={loadedOffer} />
 
-      <div className="mt-5 grid gap-3">
+      <div className="mt-5 flex flex-col gap-3 sm:flex-row">
         <ActionButton disabled={busy || !isConnected || swapOfferQuery.isLoading || !loadedOffer || loadedOffer.status === "submitted"} onClick={() => void executeLoadedSwap()}>Take swap</ActionButton>
+        {submittedSignature ? <SolanaExplorerButton signature={submittedSignature} cluster={cluster} /> : null}
       </div>
 
       {displayStatus ? <p className="mt-4 rounded-2xl border border-emerald-300/20 bg-emerald-300/10 p-4 text-sm text-emerald-100">{displayStatus}</p> : null}

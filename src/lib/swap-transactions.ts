@@ -28,7 +28,7 @@ export async function ensureVectorAccountInitialized(connection: Connection, mak
   await assertVectorProgramDeployed(connection);
   const [makerVectorPda] = findVectorPda(identity);
   const existingVectorAccount = await connection.getAccountInfo(makerVectorPda);
-  if (existingVectorAccount) return;
+  if (existingVectorAccount) return undefined;
 
   setStatus("Initializing maker Vector account...");
   const rentTopUpLamports = Number(await connection.getMinimumBalanceForRentExemption(33 + VECTOR.storedIdentityLen));
@@ -39,10 +39,11 @@ export async function ensureVectorAccountInitialized(connection: Connection, mak
   await simulateTransaction(connection, tx);
   const signature = await signAndSendWalletTransaction(walletName, tx, cluster, connection);
   await confirmTransaction(connection, signature);
+  return signature;
 }
 
 export async function wrapMakerSolIfNeeded(connection: Connection, makerAddress: Address, identity: Uint8Array, form: SwapFormState, walletName: string | undefined, cluster: AppCluster, setStatus: (status: string) => void) {
-  if (form.makerSendTokenAddress !== wrappedSolMintAddress) return;
+  if (form.makerSendTokenAddress !== wrappedSolMintAddress) return undefined;
 
   const makerSendMint = new Address(form.makerSendTokenAddress);
   const makerSendMintInfo = await getMintInfo(connection, makerSendMint);
@@ -51,7 +52,7 @@ export async function wrapMakerSolIfNeeded(connection: Connection, makerAddress:
   const makerSendSource = await getAssociatedTokenAddress(makerSendMint, makerVectorPda);
   const existingAmount = await getTokenAccountAmount(connection, makerSendSource);
   const missingAmount = requiredAmount - existingAmount;
-  if (missingAmount <= 0n) return;
+  if (missingAmount <= 0n) return undefined;
   if (missingAmount > BigInt(Number.MAX_SAFE_INTEGER)) throw new Error("Maker SOL wrap amount is too large for this transaction.");
 
   setStatus("Wrapping maker SOL into the Vector PDA token account...");
@@ -63,6 +64,7 @@ export async function wrapMakerSolIfNeeded(connection: Connection, makerAddress:
   await simulateTransaction(connection, tx);
   const signature = await signAndSendWalletTransaction(walletName, tx, cluster, connection);
   await confirmTransaction(connection, signature);
+  return signature;
 }
 
 export async function buildSwapAuthorization(connection: Connection, makerAddress: Address, identity: Uint8Array, form: SwapFormState | SwapOffer) {

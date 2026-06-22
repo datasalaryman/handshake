@@ -1,6 +1,6 @@
 import { Address, Connection } from "@solana/web3.js";
 import { useWalletUi } from "@wallet-ui/react";
-import { ArrowUpDown } from "lucide-react";
+import { ArrowUpDown, Check, Copy } from "lucide-react";
 import { useEffect, useState } from "react";
 import { appClusters, defaultCluster, isDevelopmentEnvironment, type AppCluster } from "@/components/providers/SolanaProvider";
 import { TokenPickerModal } from "@/components/groups/TokenPickerModal";
@@ -9,6 +9,7 @@ import { ActionButton } from "@/components/units/ActionButton";
 import { ClusterSelector } from "@/components/units/ClusterSelector";
 import { Field } from "@/components/units/Field";
 import { InfoRow } from "@/components/units/InfoRow";
+import { SolanaExplorerButton } from "@/components/units/SolanaExplorerButton";
 import { SwapSideCard } from "@/components/units/SwapSideCard";
 import { TokenPickerButton } from "@/components/units/TokenPickerButton";
 import { orpc } from "@/lib/orpc";
@@ -57,6 +58,8 @@ export function MakerPanel() {
   const [takerSendToken, setTakerSendToken] = useState<TokenSearchResult | undefined>(usdcToken);
   const [tokenPickerMode, setTokenPickerMode] = useState<"maker-send" | "taker-send">();
   const [generatedLink, setGeneratedLink] = useState<string>();
+  const [confirmedSignature, setConfirmedSignature] = useState<string>();
+  const [copiedLink, setCopiedLink] = useState(false);
   const [status, setStatus] = useState<string>();
   const [error, setError] = useState<string>();
   const [busy, setBusy] = useState(false);
@@ -91,6 +94,7 @@ export function MakerPanel() {
     if (!address) throw new Error("Connect the maker wallet first.");
     setBusy(true);
     setError(undefined);
+    setCopiedLink(false);
     setStatus("Building maker-authorized swap...");
 
     try {
@@ -99,8 +103,8 @@ export function MakerPanel() {
       const connection = new Connection(cluster.url, "confirmed");
       const vectorKeypair = createDeterministicKeypair(makerAddress);
       const identity = vectorIdentity(vectorKeypair.publicKey);
-      await ensureVectorAccountInitialized(connection, makerAddress, vectorKeypair, identity, connectedWalletName, cluster, setStatus);
-      await wrapMakerSolIfNeeded(connection, makerAddress, identity, form, connectedWalletName, cluster, setStatus);
+      const initializeSignature = await ensureVectorAccountInitialized(connection, makerAddress, vectorKeypair, identity, connectedWalletName, cluster, setStatus);
+      const wrapSignature = await wrapMakerSolIfNeeded(connection, makerAddress, identity, form, connectedWalletName, cluster, setStatus);
       const { passthroughIx, setupIxs, takerTransferIx } = await buildSwapAuthorization(connection, makerAddress, identity, form);
       const advanceIx = signAdvanceInstruction(vectorKeypair, await getVectorNonce(connection, identity), setupIxs, [passthroughIx, takerTransferIx], takerAddress);
       const vectorSignature = encodeVectorAuthorization(identity, advanceIx.data.slice(1));
@@ -118,6 +122,7 @@ export function MakerPanel() {
 
       const link = new URL(`/swap/${offer.id}`, window.location.origin);
       setGeneratedLink(link.toString());
+      setConfirmedSignature(wrapSignature ?? initializeSignature);
       setStatus(`Maker signed the Vector digest for ${passthroughIx.keys.length} passthrough accounts. Link is ready for the taker.`);
     } catch (error) {
       setError(error instanceof Error ? error.message : "Could not create maker-signed swap link.");
@@ -136,6 +141,12 @@ export function MakerPanel() {
       takerSendTokenAddress: current.makerSendTokenAddress,
       takerSendAmount: current.makerSendAmount,
     }));
+  }
+
+  async function copyGeneratedLink() {
+    if (!generatedLink) return;
+    await navigator.clipboard.writeText(generatedLink);
+    setCopiedLink(true);
   }
 
   return (
@@ -187,11 +198,15 @@ export function MakerPanel() {
         setTokenPickerMode(undefined);
       }} /> : null}
 
-      <div className="mt-5 grid gap-3">
-        <ActionButton disabled={busy || !isConnected} onClick={() => void createMakerSignedLink()}>Create swap link</ActionButton>
+      <div className="mt-5 flex flex-col gap-3 sm:flex-row">
+        <ActionButton disabled={busy || !isConnected || Boolean(generatedLink)} onClick={() => void createMakerSignedLink()}>Create swap link</ActionButton>
+        {confirmedSignature ? <SolanaExplorerButton signature={confirmedSignature} cluster={cluster} /> : null}
+        {generatedLink ? <button className="inline-flex items-center justify-center gap-2 rounded-xl border border-white/10 bg-black/25 px-4 py-3 text-sm font-semibold text-white transition hover:border-violet-200/40 hover:bg-white/10" type="button" onClick={() => void copyGeneratedLink()}>
+          {copiedLink ? <Check className="size-4" aria-hidden="true" /> : <Copy className="size-4" aria-hidden="true" />}
+          {copiedLink ? "Copied" : "Copy link"}
+        </button> : null}
       </div>
 
-      {generatedLink ? <InfoRow label="Generated link" value={generatedLink} mono /> : null}
       {status ? <p className="mt-4 rounded-2xl border border-emerald-300/20 bg-emerald-300/10 p-4 text-sm text-emerald-100">{status}</p> : null}
       {error ? <p className="mt-4 rounded-2xl border border-red-300/20 bg-red-300/10 p-4 text-sm text-red-100">{error}</p> : null}
     </div>
