@@ -1,11 +1,20 @@
-import { createAssociatedTokenAccountIdempotentInstruction, createSyncNativeInstruction, createTransferInstruction, getAccount, getAssociatedTokenAddressSync, getMint } from "@solana/spl-token";
+import {
+  findAssociatedTokenPda,
+  getCreateAssociatedTokenIdempotentInstruction,
+  getMintDecoder,
+  getSyncNativeInstruction,
+  getTokenDecoder,
+  getTransferInstruction,
+  TOKEN_PROGRAM_ADDRESS,
+} from "@solana-program/token";
+import { AccountRole, type AccountMeta as KitAccountMeta, type Address as KitAddress, type ReadonlyUint8Array, type TransactionSigner } from "@solana/kit";
 import {
   SolanaSignAndSendTransaction,
   SolanaSignTransaction,
   type SolanaSignAndSendTransactionFeature,
   type SolanaSignTransactionFeature,
 } from "@solana/wallet-standard-features";
-import { Address, Connection, SystemProgram, Transaction, type TransactionSignature } from "@solana/web3.js";
+import { Address, Connection, SystemProgram, Transaction, TransactionInstruction, type TransactionSignature } from "@solana/web3.js";
 import type { AppCluster } from "@/components/providers/SolanaProvider";
 import type { SwapOffer } from "@/orpc/schema";
 import { VECTOR, createCloseSubinstruction, createInitializeInstruction, createPassthroughInstruction, findVectorPda, type VectorKeypair } from "@/lib/vector";
@@ -13,6 +22,7 @@ import { getLegacySolanaProvider, getRegisteredWallet } from "@/lib/wallet-adapt
 import type { SwapFormState } from "@/lib/wallet-types";
 
 const wrappedSolMintAddress = "So11111111111111111111111111111111111111112";
+const tokenProgramId = new Address(TOKEN_PROGRAM_ADDRESS);
 
 export async function ensureVectorAccountInitialized(connection: Connection, makerAddress: Address, vectorKeypair: VectorKeypair, identity: Uint8Array, walletName: string | undefined, cluster: AppCluster, setStatus: (status: string) => void) {
   await assertVectorProgramDeployed(connection);
@@ -35,10 +45,10 @@ export async function wrapMakerSolIfNeeded(connection: Connection, makerAddress:
   if (form.makerSendTokenAddress !== wrappedSolMintAddress) return;
 
   const makerSendMint = new Address(form.makerSendTokenAddress);
-  const makerSendMintInfo = await getMint(connection, makerSendMint);
+  const makerSendMintInfo = await getMintInfo(connection, makerSendMint);
   const requiredAmount = parseTokenAmount(form.makerSendAmount, makerSendMintInfo.decimals);
   const [makerVectorPda] = findVectorPda(identity);
-  const makerSendSource = getAssociatedTokenAddressSync(makerSendMint, makerVectorPda, true);
+  const makerSendSource = await getAssociatedTokenAddress(makerSendMint, makerVectorPda);
   const existingAmount = await getTokenAccountAmount(connection, makerSendSource);
   const missingAmount = requiredAmount - existingAmount;
   if (missingAmount <= 0n) return;
@@ -63,14 +73,14 @@ export async function buildSwapAuthorization(connection: Connection, makerAddres
   const vectorAccount = await connection.getAccountInfo(makerVectorPda);
   if (!vectorAccount?.data || vectorAccount.data.length < 33) throw new Error("Maker Vector account is not initialized on this cluster.");
 
-  const makerSendMintInfo = await getMint(connection, makerSendMint);
-  const takerSendMintInfo = await getMint(connection, takerSendMint);
+  const makerSendMintInfo = await getMintInfo(connection, makerSendMint);
+  const takerSendMintInfo = await getMintInfo(connection, takerSendMint);
   const makerSendAmount = parseTokenAmount(form.makerSendAmount, makerSendMintInfo.decimals);
   const takerSendAmount = parseTokenAmount(form.takerSendAmount, takerSendMintInfo.decimals);
-  const makerSendSource = getAssociatedTokenAddressSync(makerSendMint, makerVectorPda, true);
-  const makerSendDestination = getAssociatedTokenAddressSync(makerSendMint, takerAddress);
-  const takerSendSource = getAssociatedTokenAddressSync(takerSendMint, takerAddress);
-  const takerSendDestination = getAssociatedTokenAddressSync(takerSendMint, makerAddress);
+  const makerSendSource = await getAssociatedTokenAddress(makerSendMint, makerVectorPda);
+  const makerSendDestination = await getAssociatedTokenAddress(makerSendMint, takerAddress);
+  const takerSendSource = await getAssociatedTokenAddress(takerSendMint, takerAddress);
+  const takerSendDestination = await getAssociatedTokenAddress(takerSendMint, makerAddress);
   const setupIxs = await createMissingAtaInstructions(connection, takerAddress, [
     { ata: makerSendSource, owner: makerVectorPda, mint: makerSendMint },
     { ata: makerSendDestination, owner: takerAddress, mint: makerSendMint },
@@ -148,12 +158,34 @@ export function decodeVectorAuthorization(value: string) {
 }
 
 async function getTokenAccountAmount(connection: Connection, tokenAccount: Address) {
-  try {
-    const account = await getAccount(connection, tokenAccount);
-    return account.amount;
-  } catch {
+  const account = await connection.getAccountInfo(tokenAccount);
+  if (!account) {
     return 0n;
   }
+  return getTokenDecoder().decode(account.data).amount;
+}
+
+async function getMintInfo(connection: Connection, mint: Address) {
+  const account = await connection.getAccountInfo(mint);
+  if (!account?.data) throw new Error(`Mint ${mint.toString()} was not found or has invalid data.`);
+  return getMintDecoder().decode(account.data);
+}
+
+async function getAssociatedTokenAddress(mint: Address, owner: Address) {
+  const [address] = await findAssociatedTokenPda({ owner: toKitAddress(owner), tokenProgram: TOKEN_PROGRAM_ADDRESS, mint: toKitAddress(mint) });
+  return new Address(address);
+}
+
+function createAssociatedTokenAccountIdempotentInstruction(payer: Address, associatedToken: Address, owner: Address, mint: Address) {
+  return toWeb3Instruction(getCreateAssociatedTokenIdempotentInstruction({ payer: toTransactionSigner(payer), ata: toKitAddress(associatedToken), owner: toKitAddress(owner), mint: toKitAddress(mint) }));
+}
+
+function createTransferInstruction(source: Address, destination: Address, owner: Address, amount: bigint) {
+  return toWeb3Instruction(getTransferInstruction({ source: toKitAddress(source), destination: toKitAddress(destination), authority: toTransactionSigner(owner), amount }));
+}
+
+function createSyncNativeInstruction(account: Address) {
+  return toWeb3Instruction(getSyncNativeInstruction({ account: toKitAddress(account) }));
 }
 
 async function assertVectorProgramDeployed(connection: Connection) {
@@ -195,6 +227,26 @@ function parseTokenAmount(amount: string, decimals: number) {
 
 function stringifyRpcError(error: unknown) {
   return JSON.stringify(error, (_key, value) => (typeof value === "bigint" ? value.toString() : value));
+}
+
+function toKitAddress(address: Address): KitAddress {
+  return address.toString() as KitAddress;
+}
+
+function toTransactionSigner(address: Address): TransactionSigner {
+  return { address: toKitAddress(address), signTransactions: async () => { throw new Error("Wallet signing is handled by the connected wallet."); } };
+}
+
+function toWeb3Instruction(instruction: { programAddress: KitAddress; accounts?: readonly KitAccountMeta[]; data?: ReadonlyUint8Array }) {
+  return new TransactionInstruction({
+    programId: new Address(instruction.programAddress),
+    keys: instruction.accounts?.map((account) => ({
+      pubkey: new Address(account.address),
+      isSigner: account.role === AccountRole.READONLY_SIGNER || account.role === AccountRole.WRITABLE_SIGNER,
+      isWritable: account.role === AccountRole.WRITABLE || account.role === AccountRole.WRITABLE_SIGNER,
+    })) ?? [],
+    data: instruction.data ? Uint8Array.from(instruction.data) : undefined,
+  });
 }
 
 async function confirmTransaction(connection: Connection, signature: TransactionSignature) {

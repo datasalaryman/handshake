@@ -1,5 +1,4 @@
 import { ClientOnly, createFileRoute } from "@tanstack/react-router";
-import "@/lib/browserGlobals";
 import { MakerPanel } from "@/components/groups/MakerPanel";
 
 export const Route = createFileRoute("/")({

@@ -51,7 +51,7 @@ export function createInitializeInstruction(
       { pubkey: vectorPda, isSigner: false, isWritable: true },
       { pubkey: SystemProgram.programId, isSigner: false, isWritable: false },
     ],
-    data: Buffer.from(data),
+    data,
   });
 }
 
@@ -84,7 +84,7 @@ export function createAdvanceInstruction(
       { pubkey: vectorPda, isSigner: false, isWritable: true },
       { pubkey: SYSVAR_INSTRUCTIONS_PUBKEY, isSigner: false, isWritable: false },
     ],
-    data: Buffer.from(data),
+    data,
   });
 }
 
@@ -168,7 +168,7 @@ export function createPassthroughInstruction(
   return new TransactionInstruction({
     programId: scheme.programId,
     keys,
-    data: Buffer.from(data),
+    data,
   });
 }
 
@@ -194,7 +194,7 @@ export function createCloseSubinstruction(
       { pubkey: vectorPda, isSigner: false, isWritable: true },
       { pubkey: closeTo, isSigner: false, isWritable: true },
     ],
-    data: Buffer.from([CLOSE_DISCRIMINATOR]),
+    data: new Uint8Array([CLOSE_DISCRIMINATOR]),
   });
 }
 
@@ -221,7 +221,7 @@ export function createWithdrawSubinstruction(
       { pubkey: vectorPda, isSigner: false, isWritable: true },
       { pubkey: receiver, isSigner: false, isWritable: true },
     ],
-    data: Buffer.from(data),
+    data,
   });
 }
 

@@ -1,5 +1,4 @@
 import { ClientOnly, createFileRoute } from "@tanstack/react-router";
-import "@/lib/browserGlobals";
 import { TakerPanel } from "@/components/groups/TakerPanel";
 
 export const Route = createFileRoute("/swap/$swapId")({

@@ -138,7 +138,7 @@ export function createHawk512StoreWire(
   return new TransactionInstruction({
     programId: HAWK512.programId,
     keys: [{ pubkey: vectorPda, isSigner: false, isWritable: true }],
-    data: Buffer.from(data),
+    data,
   });
 }
 
@@ -162,7 +162,7 @@ export function createHawk512Finalize(
   return new TransactionInstruction({
     programId: HAWK512.programId,
     keys: [{ pubkey: vectorPda, isSigner: false, isWritable: true }],
-    data: Buffer.from([INITIALIZE_DISCRIMINATOR]),
+    data: new Uint8Array([INITIALIZE_DISCRIMINATOR]),
   });
 }
 
