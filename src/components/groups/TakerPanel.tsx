@@ -11,7 +11,7 @@ import { SolanaExplorerButton } from "@/components/units/SolanaExplorerButton";
 import { SwapSideCard } from "@/components/units/SwapSideCard";
 import { TokenIcon } from "@/components/units/TokenIcon";
 import { orpc } from "@/lib/orpc";
-import { buildSwapAuthorization, decodeVectorAuthorization, signAndSendWalletTransaction, simulateTransaction } from "@/lib/swap-transactions";
+import { buildSwapAuthorization, buildSwapPreparationInstructions, decodeVectorAuthorization, signAndSendWalletTransaction, simulateTransaction } from "@/lib/swap-transactions";
 import { createAdvanceInstruction } from "@/lib/vector";
 import { getCurrentWalletAddress } from "@/lib/wallet-adapters";
 import type { SwapOffer } from "@/orpc/schema";
@@ -96,9 +96,18 @@ export function TakerPanel({ swapId }: { swapId: string }) {
       const makerAddress = new Address(loadedOffer.makerAddress);
       const takerAddress = new Address(loadedOffer.takerAddress);
       const { identity, signature: vectorSignature } = decodeVectorAuthorization(loadedOffer.vectorSignature);
-      const { setupIxs, passthroughIx, takerTransferIx } = await buildSwapAuthorization(connection, makerAddress, identity, loadedOffer);
+      const setupIxs = await buildSwapPreparationInstructions(connection, makerAddress, identity, loadedOffer);
+      if (setupIxs.length > 0) {
+        setStatus("Preparing token accounts for settlement...");
+        const setupTx = new Transaction({ ...(await connection.getLatestBlockhash()), feePayer: takerAddress }).add(...setupIxs);
+        await simulateTransaction(connection, setupTx);
+        await signAndSendWalletTransaction(connectedWalletName, setupTx, cluster, connection);
+      }
+
+      setStatus("Submitting lean settlement transaction...");
+      const { passthroughIx, takerTransferIx } = await buildSwapAuthorization(connection, makerAddress, identity, loadedOffer);
       const advanceIx = createAdvanceInstruction(identity, vectorSignature);
-      const tx = new Transaction({ ...(await connection.getLatestBlockhash()), feePayer: takerAddress }).add(...setupIxs, advanceIx, passthroughIx, takerTransferIx);
+      const tx = new Transaction({ ...(await connection.getLatestBlockhash()), feePayer: takerAddress }).add(advanceIx, passthroughIx, takerTransferIx);
 
       await simulateTransaction(connection, tx);
       const submittedSignature = await signAndSendWalletTransaction(connectedWalletName, tx, cluster, connection);

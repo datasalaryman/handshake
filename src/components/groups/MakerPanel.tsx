@@ -109,12 +109,12 @@ export function MakerPanel() {
       const makerAddress = new Address(makerAddressValue);
       const takerAddress = new Address(form.takerAddress);
       const connection = new Connection(cluster.url, "confirmed");
-      const vectorKeypair = createDeterministicKeypair(makerAddress);
+      const vectorKeypair = createDeterministicKeypair(makerAddress, { ...form, clusterId: cluster.id });
       const identity = vectorIdentity(vectorKeypair.publicKey);
       const initializeSignature = await ensureVectorAccountInitialized(connection, makerAddress, vectorKeypair, identity, connectedWalletName, cluster, setStatus);
       const wrapSignature = await wrapMakerSolIfNeeded(connection, makerAddress, identity, form, connectedWalletName, cluster, setStatus);
-      const { passthroughIx, setupIxs, takerTransferIx } = await buildSwapAuthorization(connection, makerAddress, identity, form);
-      const advanceIx = signAdvanceInstruction(vectorKeypair, await getVectorNonce(connection, identity), setupIxs, [passthroughIx, takerTransferIx], takerAddress);
+      const { passthroughIx, takerTransferIx } = await buildSwapAuthorization(connection, makerAddress, identity, form);
+      const advanceIx = signAdvanceInstruction(vectorKeypair, await getVectorNonce(connection, identity), [], [passthroughIx, takerTransferIx], takerAddress);
       const vectorSignature = encodeVectorAuthorization(identity, advanceIx.data.slice(1));
 
       const offer = await orpc.swapOffers.create({

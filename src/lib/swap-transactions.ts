@@ -68,33 +68,27 @@ export async function wrapMakerSolIfNeeded(connection: Connection, makerAddress:
 }
 
 export async function buildSwapAuthorization(connection: Connection, makerAddress: Address, identity: Uint8Array, form: SwapFormState | SwapOffer) {
-  const makerSendMint = new Address(form.makerSendTokenAddress);
-  const takerSendMint = new Address(form.takerSendTokenAddress);
-  const takerAddress = new Address(form.takerAddress);
-  const [makerVectorPda] = findVectorPda(identity);
-  const vectorAccount = await connection.getAccountInfo(makerVectorPda);
+  const swap = await resolveSwapAccounts(connection, makerAddress, identity, form);
+  const vectorAccount = await connection.getAccountInfo(swap.makerVectorPda);
   if (!vectorAccount?.data || vectorAccount.data.length < 33) throw new Error("Maker Vector account is not initialized on this cluster.");
 
-  const makerSendMintInfo = await getMintInfo(connection, makerSendMint);
-  const takerSendMintInfo = await getMintInfo(connection, takerSendMint);
-  const makerSendAmount = parseTokenAmount(form.makerSendAmount, makerSendMintInfo.decimals);
-  const takerSendAmount = parseTokenAmount(form.takerSendAmount, takerSendMintInfo.decimals);
-  const makerSendSource = await getAssociatedTokenAddress(makerSendMint, makerVectorPda);
-  const makerSendDestination = await getAssociatedTokenAddress(makerSendMint, takerAddress);
-  const takerSendSource = await getAssociatedTokenAddress(takerSendMint, takerAddress);
-  const takerSendDestination = await getAssociatedTokenAddress(takerSendMint, makerAddress);
-  const setupIxs = await createMissingAtaInstructions(connection, takerAddress, [
-    { ata: makerSendSource, owner: makerVectorPda, mint: makerSendMint },
-    { ata: makerSendDestination, owner: takerAddress, mint: makerSendMint },
-    { ata: takerSendSource, owner: takerAddress, mint: takerSendMint },
-    { ata: takerSendDestination, owner: makerAddress, mint: takerSendMint },
-  ]);
-  setupIxs.push(...await createTakerWrapSolInstructions(connection, takerAddress, takerSendSource, takerSendMint, takerSendAmount));
-  const makerTransfer = createTransferInstruction(makerSendSource, makerSendDestination, makerVectorPda, makerSendAmount);
-  const takerTransfer = createTransferInstruction(takerSendSource, takerSendDestination, takerAddress, takerSendAmount);
+  const makerTransfer = createTransferInstruction(swap.makerSendSource, swap.makerSendDestination, swap.makerVectorPda, swap.makerSendAmount);
+  const takerTransfer = createTransferInstruction(swap.takerSendSource, swap.takerSendDestination, swap.takerAddress, swap.takerSendAmount);
   const closeVector = createCloseSubinstruction(identity, makerAddress);
   const passthroughIx = createPassthroughInstruction(identity, [makerTransfer, closeVector]);
-  return { setupIxs, passthroughIx, takerTransferIx: takerTransfer };
+  return { passthroughIx, takerTransferIx: takerTransfer };
+}
+
+export async function buildSwapPreparationInstructions(connection: Connection, makerAddress: Address, identity: Uint8Array, form: SwapFormState | SwapOffer) {
+  const swap = await resolveSwapAccounts(connection, makerAddress, identity, form);
+  const setupIxs = await createMissingAtaInstructions(connection, swap.takerAddress, [
+    { ata: swap.makerSendSource, owner: swap.makerVectorPda, mint: swap.makerSendMint },
+    { ata: swap.makerSendDestination, owner: swap.takerAddress, mint: swap.makerSendMint },
+    { ata: swap.takerSendSource, owner: swap.takerAddress, mint: swap.takerSendMint },
+    { ata: swap.takerSendDestination, owner: makerAddress, mint: swap.takerSendMint },
+  ]);
+  setupIxs.push(...await createTakerWrapSolInstructions(connection, swap.takerAddress, swap.takerSendSource, swap.takerSendMint, swap.takerSendAmount));
+  return setupIxs;
 }
 
 export async function getVectorNonce(connection: Connection, identity: Uint8Array) {
@@ -223,6 +217,34 @@ async function createTakerWrapSolInstructions(connection: Connection, takerAddre
     SystemProgram.transfer({ fromPubkey: takerAddress, toPubkey: takerSendSource, lamports: Number(missingAmount) }),
     createSyncNativeInstruction(takerSendSource),
   ];
+}
+
+async function resolveSwapAccounts(connection: Connection, makerAddress: Address, identity: Uint8Array, form: SwapFormState | SwapOffer) {
+  const makerSendMint = new Address(form.makerSendTokenAddress);
+  const takerSendMint = new Address(form.takerSendTokenAddress);
+  const takerAddress = new Address(form.takerAddress);
+  const [makerVectorPda] = findVectorPda(identity);
+  const makerSendMintInfo = await getMintInfo(connection, makerSendMint);
+  const takerSendMintInfo = await getMintInfo(connection, takerSendMint);
+  const makerSendAmount = parseTokenAmount(form.makerSendAmount, makerSendMintInfo.decimals);
+  const takerSendAmount = parseTokenAmount(form.takerSendAmount, takerSendMintInfo.decimals);
+  const makerSendSource = await getAssociatedTokenAddress(makerSendMint, makerVectorPda);
+  const makerSendDestination = await getAssociatedTokenAddress(makerSendMint, takerAddress);
+  const takerSendSource = await getAssociatedTokenAddress(takerSendMint, takerAddress);
+  const takerSendDestination = await getAssociatedTokenAddress(takerSendMint, makerAddress);
+
+  return {
+    makerVectorPda,
+    takerAddress,
+    makerSendMint,
+    takerSendMint,
+    makerSendAmount,
+    takerSendAmount,
+    makerSendSource,
+    makerSendDestination,
+    takerSendSource,
+    takerSendDestination,
+  };
 }
 
 function parseTokenAmount(amount: string, decimals: number) {

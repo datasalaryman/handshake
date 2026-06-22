@@ -32,7 +32,17 @@ export type VectorKeypair = {
   publicKey: Uint8Array;
 };
 
-const deterministicSeedPrefix = new TextEncoder().encode("handshake:vector:falcon512:surfnet:v1");
+export type VectorSwapSeedConfig = {
+  clusterId: string;
+  makerSendTokenAddress: string;
+  makerSendAmount: string;
+  takerAddress: string;
+  takerSendTokenAddress: string;
+  takerSendAmount: string;
+};
+
+const textEncoder = new TextEncoder();
+const deterministicSeedPrefix = textEncoder.encode("handshake:vector:falcon512:swap:v2");
 
 export function createInitializeInstruction(payer: Address, publicKey: Uint8Array) {
   const identity = vectorIdentity(publicKey);
@@ -47,19 +57,28 @@ export function createKeypair(seed?: Uint8Array): VectorKeypair {
   };
 }
 
-export function createDeterministicKeypair(owner: Address): VectorKeypair {
-  return createKeypair(deterministicSeed(owner));
+export function createDeterministicKeypair(owner: Address, swap: VectorSwapSeedConfig): VectorKeypair {
+  return createKeypair(deterministicSeed(owner, swap));
 }
 
-export function deterministicIdentity(owner: Address): Uint8Array {
-  return vectorIdentity(createDeterministicKeypair(owner).publicKey);
+export function deterministicIdentity(owner: Address, swap: VectorSwapSeedConfig): Uint8Array {
+  return vectorIdentity(createDeterministicKeypair(owner, swap).publicKey);
 }
 
-function deterministicSeed(owner: Address): Uint8Array {
-  const ownerBytes = owner.toBytes();
-  const seedMaterial = new Uint8Array(deterministicSeedPrefix.length + ownerBytes.length + 1);
+function deterministicSeed(owner: Address, swap: VectorSwapSeedConfig): Uint8Array {
+  const seedFields = JSON.stringify([
+    ["makerAddress", owner.toString()],
+    ["clusterId", swap.clusterId],
+    ["makerSendTokenAddress", new Address(swap.makerSendTokenAddress).toString()],
+    ["makerSendAmount", swap.makerSendAmount.trim()],
+    ["takerAddress", new Address(swap.takerAddress).toString()],
+    ["takerSendTokenAddress", new Address(swap.takerSendTokenAddress).toString()],
+    ["takerSendAmount", swap.takerSendAmount.trim()],
+  ]);
+  const seedBytes = textEncoder.encode(seedFields);
+  const seedMaterial = new Uint8Array(deterministicSeedPrefix.length + seedBytes.length + 1);
   seedMaterial.set(deterministicSeedPrefix, 0);
-  seedMaterial.set(ownerBytes, deterministicSeedPrefix.length);
+  seedMaterial.set(seedBytes, deterministicSeedPrefix.length);
 
   const seed = new Uint8Array(48);
   seed.set(sha256(seedMaterial), 0);

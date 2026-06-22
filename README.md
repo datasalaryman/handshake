@@ -86,6 +86,8 @@ bun run surfnet:fund --case-1|--case-2|--case-3 <maker-wallet-address> <taker-wa
 
 This airdrops local SOL to both wallets and funds any non-SOL source token accounts needed for the swap. It uses Surfpool cheatcodes against local Surfnet only; it does not clone or create local mints.
 
+The maker Vector PDA is derived from the full swap configuration. `surfnet:fund` assumes the UI amount fields will be `10` for both sides unless overridden with `SURFNET_MAKER_SEND_AMOUNT` and `SURFNET_TAKER_SEND_AMOUNT`.
+
 Examples:
 
 ```bash

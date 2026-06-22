@@ -8,10 +8,13 @@ const selectedCase = caseFlags[0];
 const walletArgs = args.filter((arg) => !arg.startsWith("--"));
 const makerAddressArg = walletArgs[0];
 const takerAddressArg = walletArgs[1];
+const clusterId = process.env.SURFNET_CLUSTER_ID ?? "solana:localnet";
 const wrappedSolMint = "So11111111111111111111111111111111111111112";
 const usdcMint = "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v";
 const usdtMint = "Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB";
 const { makerTokenMint, takerTokenMint } = getTokenPair(selectedCase);
+const makerSendAmount = process.env.SURFNET_MAKER_SEND_AMOUNT ?? "10";
+const takerSendAmount = process.env.SURFNET_TAKER_SEND_AMOUNT ?? "10";
 const makerTokenAmount = BigInt(process.env.SURFNET_MAKER_TOKEN_AMOUNT ?? "10000000000");
 const takerTokenAmount = BigInt(process.env.SURFNET_TAKER_TOKEN_AMOUNT ?? "10000000000");
 const solAirdropLamports = Number(process.env.SURFNET_SOL_AIRDROP_LAMPORTS ?? "10000000000");
@@ -24,7 +27,14 @@ if (caseFlags.length !== 1 || !makerAddressArg || !takerAddressArg) {
 const connection = new Connection(rpcUrl, "confirmed");
 const makerAddress = new Address(makerAddressArg);
 const takerAddress = new Address(takerAddressArg);
-const makerVectorIdentity = deterministicIdentity(makerAddress);
+const makerVectorIdentity = deterministicIdentity(makerAddress, {
+  clusterId,
+  makerSendTokenAddress: makerTokenMint,
+  makerSendAmount,
+  takerAddress: takerAddress.toString(),
+  takerSendTokenAddress: takerTokenMint,
+  takerSendAmount,
+});
 const [makerVectorPda] = findVectorPda(makerVectorIdentity);
 
 await airdrop(connection, makerAddress, solAirdropLamports);
@@ -38,6 +48,7 @@ if (takerTokenMint !== wrappedSolMint) {
 
 console.log("Funded Surfnet swap accounts.");
 console.log(`Funding case: ${selectedCase}`);
+console.log(`Swap seed amounts: maker ${makerSendAmount}, taker ${takerSendAmount}`);
 console.log(`Maker wallet SOL: ${makerAddress.toString()}`);
 console.log(`Taker wallet SOL: ${takerAddress.toString()}`);
 if (makerTokenMint === wrappedSolMint) {
