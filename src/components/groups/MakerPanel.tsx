@@ -126,6 +126,7 @@ export function MakerPanel() {
         takerSendTokenAddress: form.takerSendTokenAddress,
         takerSendAmount: form.takerSendAmount,
         vectorSignature,
+        makerProofSignature: initializeSignature,
       });
 
       const link = new URL(`/swap/${offer.id}`, window.location.origin);

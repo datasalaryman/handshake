@@ -1,10 +1,10 @@
 import type { AppCluster } from "@/components/providers/SolanaProvider";
 
-export function SolanaExplorerButton({ signature, cluster }: { signature: string; cluster: AppCluster }) {
+export function SolanaExplorerButton({ signature, cluster, label = "Explorer" }: { signature: string; cluster: AppCluster; label?: string }) {
   return (
     <a className="inline-flex items-center justify-center gap-2 rounded-xl border border-white/10 bg-black/25 px-4 py-3 text-sm font-semibold text-white transition hover:border-violet-200/40 hover:bg-white/10" href={getExplorerUrl(signature, cluster)} target="_blank" rel="noreferrer">
       <SolanaLogo />
-      Explorer
+      {label}
     </a>
   );
 }
