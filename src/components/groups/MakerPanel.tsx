@@ -159,10 +159,6 @@ export function MakerPanel() {
         </div>
       </div>
 
-      <div className="grid gap-3">
-        <InfoRow label="Maker address" value={address ?? "Not connected"} mono />
-      </div>
-
       <form className="mt-5 grid gap-4" onSubmit={(event) => event.preventDefault()}>
         <Field label="Taker address" value={form.takerAddress} onChange={(takerAddress) => setForm((current) => ({ ...current, takerAddress }))} />
         <SwapSideCard title="Send">
