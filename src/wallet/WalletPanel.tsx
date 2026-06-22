@@ -14,7 +14,7 @@ import { useDeferredValue, useEffect, useState } from "react";
 import { orpc } from "../lib/orpc";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../components/ui/select";
 import { VECTOR, createAdvanceInstruction, createCloseSubinstruction, createDeterministicKeypair, createInitializeInstruction, createPassthroughInstruction, findVectorPda, signAdvanceInstruction, vectorIdentity, type VectorKeypair } from "../lib/vector";
-import type { SwapOffer } from "../swaps/swapServer";
+import type { SwapOffer } from "../orpc/schema";
 import { appClusters, defaultCluster, isDevelopmentEnvironment, type AppCluster } from "./clusters";
 import { SolanaProvider } from "./SolanaProvider";
 
