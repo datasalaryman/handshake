@@ -92,8 +92,8 @@ export function TakerPanel({ swapId }: { swapId: string }) {
     <div className="rounded-3xl border border-white/10 bg-white/[0.04] p-5 shadow-2xl shadow-violet-950/30 backdrop-blur sm:p-6">
       <div className="mb-6 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div>
-          <p className="text-sm uppercase tracking-[0.24em] text-violet-200/70">Peer swap</p>
-          <h2 className="mt-1 text-2xl font-semibold">Take Vector-signed swap</h2>
+          <p className="text-sm uppercase tracking-[0.24em] text-violet-200/70">Accept handshake</p>
+          <h2 className="mt-1 text-2xl font-semibold">Complete a peer-to-peer swap</h2>
         </div>
         <div className="flex flex-wrap gap-2">
           {isDevelopmentEnvironment ? <ClusterSelector cluster={cluster} onClusterChange={setSelectedClusterId} /> : null}

@@ -1,4 +1,5 @@
 import { ClientOnly, createFileRoute } from "@tanstack/react-router";
+import { AppHeader } from "@/components/groups/AppHeader";
 import { TakerPanel } from "@/components/groups/TakerPanel";
 
 export const Route = createFileRoute("/swap/$swapId")({
@@ -10,10 +11,13 @@ function SwapPage() {
 
   return (
     <main className="min-h-screen bg-[#06070d] px-4 py-8 text-white sm:px-6 lg:px-8">
-      <section className="mx-auto flex min-h-[calc(100vh-4rem)] w-full max-w-3xl items-center justify-center">
-        <ClientOnly fallback={<TakerPanelSkeleton />}>
-          <TakerPanel swapId={swapId} />
-        </ClientOnly>
+      <section className="mx-auto flex min-h-[calc(100vh-4rem)] w-full max-w-3xl flex-col justify-center">
+        <AppHeader />
+        <div>
+          <ClientOnly fallback={<TakerPanelSkeleton />}>
+            <TakerPanel swapId={swapId} />
+          </ClientOnly>
+        </div>
       </section>
     </main>
   );

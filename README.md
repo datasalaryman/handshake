@@ -1,4 +1,10 @@
-# Handshake Solana Wallet
+# Handshake
+
+Peer-to-peer token swaps on Solana.
+
+Powered by [Vector](https://github.com/blueshift-gg/vector).
+
+Maker authorization is signed with Falcon-512, a post-quantum signature mechanism.
 
 To install dependencies:
 

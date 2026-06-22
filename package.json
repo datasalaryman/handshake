@@ -1,6 +1,7 @@
 {
-  "name": "handshake-solana-wallet",
+  "name": "handshake",
   "version": "0.1.0",
+  "description": "Peer-to-peer token swaps on Solana",
   "private": true,
   "type": "module",
   "scripts": {

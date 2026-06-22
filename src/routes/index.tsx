@@ -1,4 +1,5 @@
 import { ClientOnly, createFileRoute } from "@tanstack/react-router";
+import { AppHeader } from "@/components/groups/AppHeader";
 import { MakerPanel } from "@/components/groups/MakerPanel";
 
 export const Route = createFileRoute("/")({
@@ -8,10 +9,13 @@ export const Route = createFileRoute("/")({
 function Home() {
   return (
     <main className="min-h-screen bg-[#06070d] px-4 py-8 text-white sm:px-6 lg:px-8">
-      <section className="mx-auto flex min-h-[calc(100vh-4rem)] w-full max-w-3xl items-center justify-center">
-        <ClientOnly fallback={<MakerPanelSkeleton />}>
-          <MakerPanel />
-        </ClientOnly>
+      <section className="mx-auto flex min-h-[calc(100vh-4rem)] w-full max-w-3xl flex-col justify-center">
+        <AppHeader />
+        <div>
+          <ClientOnly fallback={<MakerPanelSkeleton />}>
+            <MakerPanel />
+          </ClientOnly>
+        </div>
       </section>
     </main>
   );
