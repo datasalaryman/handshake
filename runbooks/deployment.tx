@@ -1,0 +1,23 @@
+addon "svm" {
+  network_id = "localnet"
+  rpc_api_url = "http://127.0.0.1:8899"
+}
+
+variable "vector_program_id" {
+  description = "Vector Falcon-512 program id."
+  value = "DzqGka5o9CjrTgP9QKUrXnxMxCLkWkTMiESuDqELgBwE"
+}
+
+action "deploy_vector" "svm::setup_surfnet" {
+  description = "Deploy the Vector Falcon-512 program into Surfpool."
+
+  deploy_program {
+    program_id = variable.vector_program_id
+    binary_path = "./target/deploy/vector_falcon512.so"
+  }
+}
+
+output "vector_program_id" {
+  description = "Program id used by the local app."
+  value = variable.vector_program_id
+}

@@ -29,7 +29,7 @@ bun start
 This workflow runs the full Vector PDA swap flow locally:
 
 - Start a mainnet-backed Surfpool Surfnet on `http://127.0.0.1:8899`.
-- Let Surfpool auto-deploy the Vector program from `target/deploy`.
+- Let Surfpool run `txtx.yml` and deploy the Vector program from `target/deploy`.
 - Let Surfpool resolve SPL mints and existing token accounts from mainnet on demand.
 - Run the app against Surfnet.
 - Create a swap link as the maker, then open it as the taker and take the swap.
@@ -68,12 +68,24 @@ Run this in terminal 1 and keep it running:
 bun run surfnet
 ```
 
-This starts local RPC at `http://127.0.0.1:8899` and WebSocket at `ws://127.0.0.1:8900`.
+This starts local RPC at `http://127.0.0.1:8899`, WebSocket at `ws://127.0.0.1:8900`, and executes the `deployment` runbook from `txtx.yml`. The default Surfnet database is in-memory, so every restart starts from clean local state.
 
-Surfpool loads the Vector artifact from `target/deploy/vector_ed25519.so` with program id:
+To keep Surfnet state across restarts instead:
+
+```bash
+bun run surfnet:persistent
+```
+
+The runbook deploys the Vector artifact from `target/deploy/vector_falcon512.so` with program id:
 
 ```text
-EMeHQpaeoU3NN679YimZWVxvaSeWqDHMKafcDxGWGRrY
+DzqGka5o9CjrTgP9QKUrXnxMxCLkWkTMiESuDqELgBwE
+```
+
+To re-run deployment against an already-running Surfnet:
+
+```bash
+bun run surfnet:deploy
 ```
 
 ### 2. Start The App
@@ -165,7 +177,7 @@ bun run db:push
 Verify Surfpool deployed the local Vector program:
 
 ```bash
-bun --eval 'import { Connection, Address } from "@solana/web3.js"; const c = new Connection("http://127.0.0.1:8899", "confirmed"); const info = await c.getAccountInfo(new Address("EMeHQpaeoU3NN679YimZWVxvaSeWqDHMKafcDxGWGRrY")); console.log(info && { executable: info.executable, owner: info.owner.toString(), lamports: info.lamports, dataLength: info.data.length });'
+bun --eval 'import { Connection, Address } from "@solana/web3.js"; const c = new Connection("http://127.0.0.1:8899", "confirmed"); const info = await c.getAccountInfo(new Address("DzqGka5o9CjrTgP9QKUrXnxMxCLkWkTMiESuDqELgBwE")); console.log(info && { executable: info.executable, owner: info.owner.toString(), lamports: info.lamports, dataLength: info.data.length });'
 ```
 
 ### Common Errors

@@ -1,0 +1,10 @@
+---
+name: handshake
+id: handshake
+runbooks:
+  - id: deployment
+    name: deployment
+    description: Deploy Vector to the local Surfpool surfnet.
+    location: ./runbooks/deployment.tx
+environments:
+  localnet: {}
