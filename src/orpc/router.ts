@@ -8,6 +8,7 @@ const nonEmptyString = z.string().trim().min(1);
 
 const markSwapSubmittedInput = z.object({
   id: nonEmptyString,
+  takerPreparationSignature: z.string().trim().optional(),
   submittedSignature: nonEmptyString,
 });
 
@@ -23,6 +24,7 @@ export const swapOffersRouter = {
       takerSendAmount: nonEmptyString,
       vectorSignature: nonEmptyString,
       makerProofSignature: z.string().trim().optional(),
+      makerPreparationSignature: z.string().trim().optional(),
     }))
     .handler(async ({ input }) => {
       const rows = await getDb().insert(swapOffers).values({
@@ -36,6 +38,7 @@ export const swapOffersRouter = {
         takerSendAmount: input.takerSendAmount,
         vectorSignature: input.vectorSignature,
         makerProofSignature: input.makerProofSignature,
+        makerPreparationSignature: input.makerPreparationSignature,
         status: "maker_signed",
       }).returning();
 
@@ -48,6 +51,7 @@ export const swapOffersRouter = {
   markSubmitted: os.input(markSwapSubmittedInput).handler(async ({ input }) => {
     const rows = await getDb().update(swapOffers).set({
       status: "submitted",
+      takerPreparationSignature: input.takerPreparationSignature,
       submittedSignature: input.submittedSignature,
     }).where(eq(swapOffers.id, input.id)).returning();
 
@@ -100,8 +104,10 @@ function mapSwapOffer(row: SwapOfferRow | undefined): SwapOffer {
     takerSendAmount: row.takerSendAmount,
     vectorSignature: row.vectorSignature,
     makerProofSignature: row.makerProofSignature ?? undefined,
+    makerPreparationSignature: row.makerPreparationSignature ?? undefined,
     status: row.status as SwapStatus,
     createdAt: row.createdAt.toISOString(),
+    takerPreparationSignature: row.takerPreparationSignature ?? undefined,
     submittedSignature: row.submittedSignature ?? undefined,
   };
 }

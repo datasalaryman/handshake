@@ -15,6 +15,13 @@
       "when": 1782120982098,
       "tag": "0001_sharp_slyde",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1782184709845,
+      "tag": "0002_worthless_white_queen",
+      "breakpoints": true
     }
   ]
 }
