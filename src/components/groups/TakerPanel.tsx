@@ -27,9 +27,16 @@ export function TakerPanel({ swapId }: { swapId: string }) {
   const [status, setStatus] = useState<string>();
   const [error, setError] = useState<string>();
   const [busy, setBusy] = useState(false);
+  if (connected && (connectedAddress || connectedWalletName)) {
+    setConnectedAddress(undefined);
+    setConnectedWalletName(undefined);
+  }
+  const address = account?.address ?? connectedAddress;
+  const takerAddressValue = address?.toString() ?? "";
   const swapOfferQuery = useQuery({
-    queryKey: ["swapOffers", swapId],
-    queryFn: () => orpc.swapOffers.get({ id: swapId }),
+    queryKey: ["swapOffers", swapId, takerAddressValue],
+    queryFn: () => orpc.swapOffers.get({ id: swapId, takerAddress: takerAddressValue }),
+    enabled: Boolean(takerAddressValue),
   });
   const loadedOffer = swapOfferQuery.data;
   const tokenMetadataQuery = useQuery({
@@ -50,20 +57,15 @@ export function TakerPanel({ swapId }: { swapId: string }) {
   });
   const offerClusterId = loadedOffer?.clusterId as AppCluster["id"] | undefined;
   const clusterId = selectedClusterId ?? (appClusters.some((clusterOption) => clusterOption.id === offerClusterId) ? offerClusterId : defaultCluster.id);
-  if (connected && (connectedAddress || connectedWalletName)) {
-    setConnectedAddress(undefined);
-    setConnectedWalletName(undefined);
-  }
-  const address = account?.address ?? connectedAddress;
-  const takerAddressValue = address?.toString() ?? "";
   const cluster = appClusters.find((clusterOption) => clusterOption.id === clusterId) ?? defaultCluster;
   const isConnected = connected || Boolean(connectedAddress);
-  const connectedWalletMatchesTaker = Boolean(!loadedOffer || !takerAddressValue || takerAddressValue === loadedOffer.takerAddress);
+  const connectedWalletMatchesTaker = Boolean(loadedOffer && takerAddressValue === loadedOffer.takerAddress);
   const takerPreparationSignature = loadedOffer?.takerPreparationSignature;
   const submittedSignature = loadedOffer?.submittedSignature;
-  const loadError = swapOfferQuery.error instanceof Error ? swapOfferQuery.error.message : swapOfferQuery.error ? "Could not load swap offer." : undefined;
+  const loadError = swapOfferQuery.error ? "Connected wallet does not match the intended taker for this handshake." : undefined;
+  const walletAccessError = !isConnected ? "Wallet not connected." : loadError;
   const displayStatus = status ?? (swapOfferQuery.isLoading ? "Loading maker-signed swap offer..." : loadedOffer ? "Loaded maker-signed swap offer." : undefined);
-  const displayError = error ?? loadError;
+  const displayError = error;
 
   useEffect(() => {
     if (!connectedWalletName) return;
@@ -144,10 +146,12 @@ export function TakerPanel({ swapId }: { swapId: string }) {
         </div>
       </div>
 
-      {!connectedWalletMatchesTaker ? <p className="mt-5 rounded-2xl border border-red-300/20 bg-red-300/10 p-4 text-sm text-red-100">Connected wallet does not match the intended taker for this handshake.</p> : <TakerSwapSummary offer={loadedOffer} makerSendToken={tokenMetadataQuery.data?.makerSendToken} takerSendToken={tokenMetadataQuery.data?.takerSendToken} isLoadingTokens={tokenMetadataQuery.isFetching} tokenError={tokenMetadataQuery.error} copiedTokenAddress={copiedTokenAddress} onCopyTokenAddress={(tokenAddress) => {
+      {walletAccessError ? <p className="mt-5 rounded-2xl border border-red-300/20 bg-red-300/10 p-4 text-sm text-red-100">{walletAccessError}</p> : null}
+
+      {connectedWalletMatchesTaker ? <TakerSwapSummary offer={loadedOffer} makerSendToken={tokenMetadataQuery.data?.makerSendToken} takerSendToken={tokenMetadataQuery.data?.takerSendToken} isLoadingTokens={tokenMetadataQuery.isFetching} tokenError={tokenMetadataQuery.error} copiedTokenAddress={copiedTokenAddress} onCopyTokenAddress={(tokenAddress) => {
         void navigator.clipboard.writeText(tokenAddress);
         setCopiedTokenAddress(tokenAddress);
-      }} />}
+      }} /> : null}
 
       {connectedWalletMatchesTaker ? <div className="mt-5 flex flex-col gap-3 sm:flex-row">
         <ActionButton disabled={busy || !isConnected || swapOfferQuery.isLoading || !loadedOffer || loadedOffer.status === "submitted"} onClick={() => void executeLoadedSwap()}>Take swap</ActionButton>

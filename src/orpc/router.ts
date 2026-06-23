@@ -1,5 +1,5 @@
 import { os } from "@orpc/server";
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { z } from "zod";
 import { getDb } from "@/db";
 import { swapOffers, tokenSearchResultSchema, type SwapOffer, type SwapOfferRow, type SwapStatus } from "@/orpc/schema";
@@ -44,8 +44,8 @@ export const swapOffersRouter = {
 
       return mapSwapOffer(rows[0]);
     }),
-  get: os.input(z.object({ id: nonEmptyString })).handler(async ({ input }) => {
-    const rows = await getDb().select().from(swapOffers).where(eq(swapOffers.id, input.id)).limit(1);
+  get: os.input(z.object({ id: nonEmptyString, takerAddress: nonEmptyString })).handler(async ({ input }) => {
+    const rows = await getDb().select().from(swapOffers).where(and(eq(swapOffers.id, input.id), eq(swapOffers.takerAddress, input.takerAddress))).limit(1);
     return mapSwapOffer(rows[0]);
   }),
   markSubmitted: os.input(markSwapSubmittedInput).handler(async ({ input }) => {
