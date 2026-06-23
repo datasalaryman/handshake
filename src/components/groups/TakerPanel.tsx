@@ -59,6 +59,7 @@ export function TakerPanel({ swapId }: { swapId: string }) {
   const cluster = appClusters.find((clusterOption) => clusterOption.id === clusterId) ?? defaultCluster;
   const isConnected = connected || Boolean(connectedAddress);
   const connectedWalletMatchesTaker = Boolean(!loadedOffer || !takerAddressValue || takerAddressValue === loadedOffer.takerAddress);
+  const takerPreparationSignature = loadedOffer?.takerPreparationSignature;
   const submittedSignature = loadedOffer?.submittedSignature;
   const loadError = swapOfferQuery.error instanceof Error ? swapOfferQuery.error.message : swapOfferQuery.error ? "Could not load swap offer." : undefined;
   const displayStatus = status ?? (swapOfferQuery.isLoading ? "Loading maker-signed swap offer..." : loadedOffer ? "Loaded maker-signed swap offer." : undefined);
@@ -97,21 +98,22 @@ export function TakerPanel({ swapId }: { swapId: string }) {
       const takerAddress = new Address(loadedOffer.takerAddress);
       const { identity, signature: vectorSignature } = decodeVectorAuthorization(loadedOffer.vectorSignature);
       const setupIxs = await buildSwapPreparationInstructions(connection, makerAddress, identity, loadedOffer);
+      let takerPreparationSignature: string | undefined;
       if (setupIxs.length > 0) {
         setStatus("Preparing token accounts for settlement...");
         const setupTx = new Transaction({ ...(await connection.getLatestBlockhash()), feePayer: takerAddress }).add(...setupIxs);
         await simulateTransaction(connection, setupTx);
-        await signAndSendWalletTransaction(connectedWalletName, setupTx, cluster, connection);
+        takerPreparationSignature = await signAndSendWalletTransaction(connectedWalletName, setupTx, cluster, connection);
       }
 
-      setStatus("Submitting lean settlement transaction...");
+      setStatus("Submitting Vector settlement transaction...");
       const { passthroughIx, takerTransferIx } = await buildSwapAuthorization(connection, makerAddress, identity, loadedOffer);
       const advanceIx = createAdvanceInstruction(identity, vectorSignature);
       const tx = new Transaction({ ...(await connection.getLatestBlockhash()), feePayer: takerAddress }).add(advanceIx, passthroughIx, takerTransferIx);
 
       await simulateTransaction(connection, tx);
       const submittedSignature = await signAndSendWalletTransaction(connectedWalletName, tx, cluster, connection);
-      const updatedOffer = await orpc.swapOffers.markSubmitted({ id: loadedOffer.id, submittedSignature });
+      const updatedOffer = await orpc.swapOffers.markSubmitted({ id: loadedOffer.id, takerPreparationSignature, submittedSignature });
       queryClient.setQueryData(["swapOffers", swapId], updatedOffer);
       setStatus(undefined);
     } catch (error) {
@@ -149,8 +151,10 @@ export function TakerPanel({ swapId }: { swapId: string }) {
 
       {connectedWalletMatchesTaker ? <div className="mt-5 flex flex-col gap-3 sm:flex-row">
         <ActionButton disabled={busy || !isConnected || swapOfferQuery.isLoading || !loadedOffer || loadedOffer.status === "submitted"} onClick={() => void executeLoadedSwap()}>Take swap</ActionButton>
-        {loadedOffer?.makerProofSignature ? <SolanaExplorerButton signature={loadedOffer.makerProofSignature} cluster={cluster} label="Proof" /> : null}
-        {submittedSignature ? <SolanaExplorerButton signature={submittedSignature} cluster={cluster} /> : null}
+        {loadedOffer?.makerProofSignature ? <SolanaExplorerButton signature={loadedOffer.makerProofSignature} cluster={cluster} label="Maker Init" /> : null}
+        {loadedOffer?.makerPreparationSignature ? <SolanaExplorerButton signature={loadedOffer.makerPreparationSignature} cluster={cluster} label="Maker Prep" /> : null}
+        {takerPreparationSignature ? <SolanaExplorerButton signature={takerPreparationSignature} cluster={cluster} label="Taker Prep" /> : null}
+        {submittedSignature ? <SolanaExplorerButton signature={submittedSignature} cluster={cluster} label="Vector Action" /> : null}
       </div> : null}
 
       {displayStatus ? <p className="mt-4 rounded-2xl border border-emerald-300/20 bg-emerald-300/10 p-4 text-sm text-emerald-100">{displayStatus}</p> : null}

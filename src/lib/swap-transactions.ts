@@ -26,51 +26,77 @@ const tokenProgramId = new Address(TOKEN_PROGRAM_ADDRESS);
 const transactionConfirmationTimeoutMs = 60_000;
 const transactionConfirmationPollMs = 1_000;
 
-export async function ensureVectorAccountInitialized(connection: Connection, makerAddress: Address, vectorKeypair: VectorKeypair, identity: Uint8Array, walletName: string | undefined, cluster: AppCluster, setStatus: (status: string) => void) {
+export async function prepareMakerVectorAccount(connection: Connection, makerAddress: Address, vectorKeypair: VectorKeypair, identity: Uint8Array, form: SwapFormState, walletName: string | undefined, cluster: AppCluster, setStatus: (status: string) => void) {
   await assertVectorProgramDeployed(connection, cluster);
   const [makerVectorPda] = findVectorPda(identity);
   const existingVectorAccount = await connection.getAccountInfo(makerVectorPda);
-  if (existingVectorAccount) return undefined;
+  let makerProofSignature: string | undefined;
 
-  setStatus("Initializing maker Vector account...");
-  const rentTopUpLamports = Number(await connection.getMinimumBalanceForRentExemption(33 + VECTOR.storedIdentityLen));
-  const tx = new Transaction({ ...(await connection.getLatestBlockhash()), feePayer: makerAddress }).add(
-    createInitializeInstruction(makerAddress, vectorKeypair.publicKey),
-    SystemProgram.transfer({ fromPubkey: makerAddress, toPubkey: makerVectorPda, lamports: rentTopUpLamports }),
-  );
-  await simulateTransaction(connection, tx);
-  const signature = await signAndSendWalletTransaction(walletName, tx, cluster, connection);
-  return signature;
-}
+  if (!existingVectorAccount) {
+    setStatus("Initializing maker Vector account...");
+    const rentTopUpLamports = Number(await connection.getMinimumBalanceForRentExemption(33 + VECTOR.storedIdentityLen));
+    const tx = new Transaction({ ...(await connection.getLatestBlockhash()), feePayer: makerAddress }).add(
+      createInitializeInstruction(makerAddress, vectorKeypair.publicKey),
+      SystemProgram.transfer({ fromPubkey: makerAddress, toPubkey: makerVectorPda, lamports: rentTopUpLamports }),
+    );
+    await simulateTransaction(connection, tx);
+    makerProofSignature = await signAndSendWalletTransaction(walletName, tx, cluster, connection);
+  }
 
-export async function wrapMakerSolIfNeeded(connection: Connection, makerAddress: Address, identity: Uint8Array, form: SwapFormState, walletName: string | undefined, cluster: AppCluster, setStatus: (status: string) => void) {
-  if (form.makerSendTokenAddress !== wrappedSolMintAddress) return undefined;
+  const preparationIxs: TransactionInstruction[] = [];
 
   const makerSendMint = new Address(form.makerSendTokenAddress);
   const makerSendMintInfo = await getMintInfo(connection, makerSendMint);
   const requiredAmount = parseTokenAmount(form.makerSendAmount, makerSendMintInfo.decimals);
-  const [makerVectorPda] = findVectorPda(identity);
   const makerSendSource = await getAssociatedTokenAddress(makerSendMint, makerVectorPda);
-  const existingAmount = await getTokenAccountAmount(connection, makerSendSource);
-  const missingAmount = requiredAmount - existingAmount;
-  if (missingAmount <= 0n) return undefined;
-  if (missingAmount > BigInt(Number.MAX_SAFE_INTEGER)) throw new Error("Maker SOL wrap amount is too large for this transaction.");
+  const makerSendSourceAccount = await connection.getAccountInfo(makerSendSource);
+  if (!makerSendSourceAccount) {
+    preparationIxs.push(createAssociatedTokenAccountIdempotentInstruction(makerAddress, makerSendSource, makerVectorPda, makerSendMint));
+  }
 
-  setStatus("Wrapping maker SOL into the Vector PDA token account...");
-  const tx = new Transaction({ ...(await connection.getLatestBlockhash()), feePayer: makerAddress }).add(
-    createAssociatedTokenAccountIdempotentInstruction(makerAddress, makerSendSource, makerVectorPda, makerSendMint),
-    SystemProgram.transfer({ fromPubkey: makerAddress, toPubkey: makerSendSource, lamports: Number(missingAmount) }),
-    createSyncNativeInstruction(makerSendSource),
-  );
-  await simulateTransaction(connection, tx);
-  const signature = await signAndSendWalletTransaction(walletName, tx, cluster, connection);
-  return signature;
+  if (form.makerSendTokenAddress === wrappedSolMintAddress) {
+    const existingAmount = await getTokenAccountAmount(connection, makerSendSource);
+    const missingAmount = requiredAmount - existingAmount;
+    if (missingAmount > BigInt(Number.MAX_SAFE_INTEGER)) throw new Error("Maker SOL wrap amount is too large for this transaction.");
+    if (missingAmount > 0n) {
+      preparationIxs.push(
+        SystemProgram.transfer({ fromPubkey: makerAddress, toPubkey: makerSendSource, lamports: Number(missingAmount) }),
+        createSyncNativeInstruction(makerSendSource),
+      );
+    }
+  } else {
+    const makerWalletSource = await getAssociatedTokenAddress(makerSendMint, makerAddress);
+    const existingAmount = await getTokenAccountAmount(connection, makerSendSource);
+    const missingAmount = requiredAmount - existingAmount;
+    if (missingAmount > 0n) {
+      await assertTokenAccountBalance(connection, makerWalletSource, missingAmount, "maker wallet source", {
+        owner: makerAddress,
+        mint: makerSendMint,
+      });
+      preparationIxs.push(createTransferInstruction(makerWalletSource, makerSendSource, makerAddress, missingAmount));
+    }
+  }
+
+  let makerPreparationSignature: string | undefined;
+  if (preparationIxs.length > 0) {
+    setStatus("Preparing maker token account...");
+    const tx = new Transaction({ ...(await connection.getLatestBlockhash()), feePayer: makerAddress }).add(...preparationIxs);
+    await simulateTransaction(connection, tx);
+    makerPreparationSignature = await signAndSendWalletTransaction(walletName, tx, cluster, connection);
+  }
+
+  return { makerProofSignature, makerPreparationSignature };
 }
 
 export async function buildSwapAuthorization(connection: Connection, makerAddress: Address, identity: Uint8Array, form: SwapFormState | SwapOffer) {
   const swap = await resolveSwapAccounts(connection, makerAddress, identity, form);
   const vectorAccount = await connection.getAccountInfo(swap.makerVectorPda);
   if (!vectorAccount?.data || vectorAccount.data.length < 33) throw new Error("Maker Vector account is not initialized on this cluster.");
+
+  await assertTokenAccountBalance(connection, swap.makerSendSource, swap.makerSendAmount, "maker Vector PDA source", {
+    owner: swap.makerVectorPda,
+    mint: swap.makerSendMint,
+  });
 
   const makerTransfer = createTransferInstruction(swap.makerSendSource, swap.makerSendDestination, swap.makerVectorPda, swap.makerSendAmount);
   const takerTransfer = createTransferInstruction(swap.takerSendSource, swap.takerSendDestination, swap.takerAddress, swap.takerSendAmount);
@@ -81,14 +107,7 @@ export async function buildSwapAuthorization(connection: Connection, makerAddres
 
 export async function buildSwapPreparationInstructions(connection: Connection, makerAddress: Address, identity: Uint8Array, form: SwapFormState | SwapOffer) {
   const swap = await resolveSwapAccounts(connection, makerAddress, identity, form);
-  const setupIxs = await createMissingAtaInstructions(connection, swap.takerAddress, [
-    { ata: swap.makerSendSource, owner: swap.makerVectorPda, mint: swap.makerSendMint },
-    { ata: swap.makerSendDestination, owner: swap.takerAddress, mint: swap.makerSendMint },
-    { ata: swap.takerSendSource, owner: swap.takerAddress, mint: swap.takerSendMint },
-    { ata: swap.takerSendDestination, owner: makerAddress, mint: swap.takerSendMint },
-  ]);
-  setupIxs.push(...await createTakerWrapSolInstructions(connection, swap.takerAddress, swap.takerSendSource, swap.takerSendMint, swap.takerSendAmount));
-  return setupIxs;
+  return createSwapSetupInstructions(connection, makerAddress, swap);
 }
 
 export async function getVectorNonce(connection: Connection, identity: Uint8Array) {
@@ -172,6 +191,13 @@ async function getMintInfo(connection: Connection, mint: Address) {
   return getMintDecoder().decode(account.data);
 }
 
+async function assertTokenAccountBalance(connection: Connection, tokenAccount: Address, requiredAmount: bigint, label: string, context: { owner: Address; mint: Address }) {
+  const currentAmount = await getTokenAccountAmount(connection, tokenAccount);
+  if (currentAmount >= requiredAmount) return;
+
+  throw new Error(`${label} has insufficient funds. ATA ${tokenAccount.toString()} for owner ${context.owner.toString()} mint ${context.mint.toString()} has ${currentAmount.toString()} base units, needs ${requiredAmount.toString()}.`);
+}
+
 async function getAssociatedTokenAddress(mint: Address, owner: Address) {
   const [address] = await findAssociatedTokenPda({ owner: toKitAddress(owner), tokenProgram: TOKEN_PROGRAM_ADDRESS, mint: toKitAddress(mint) });
   return new Address(address);
@@ -217,6 +243,16 @@ async function createTakerWrapSolInstructions(connection: Connection, takerAddre
     SystemProgram.transfer({ fromPubkey: takerAddress, toPubkey: takerSendSource, lamports: Number(missingAmount) }),
     createSyncNativeInstruction(takerSendSource),
   ];
+}
+
+async function createSwapSetupInstructions(connection: Connection, makerAddress: Address, swap: Awaited<ReturnType<typeof resolveSwapAccounts>>) {
+  const setupIxs = await createMissingAtaInstructions(connection, swap.takerAddress, [
+    { ata: swap.makerSendDestination, owner: swap.takerAddress, mint: swap.makerSendMint },
+    { ata: swap.takerSendSource, owner: swap.takerAddress, mint: swap.takerSendMint },
+    { ata: swap.takerSendDestination, owner: makerAddress, mint: swap.takerSendMint },
+  ]);
+  setupIxs.push(...await createTakerWrapSolInstructions(connection, swap.takerAddress, swap.takerSendSource, swap.takerSendMint, swap.takerSendAmount));
+  return setupIxs;
 }
 
 async function resolveSwapAccounts(connection: Connection, makerAddress: Address, identity: Uint8Array, form: SwapFormState | SwapOffer) {

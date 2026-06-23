@@ -70,10 +70,10 @@ function deterministicSeed(owner: Address, swap: VectorSwapSeedConfig): Uint8Arr
     ["makerAddress", owner.toString()],
     ["clusterId", swap.clusterId],
     ["makerSendTokenAddress", new Address(swap.makerSendTokenAddress).toString()],
-    ["makerSendAmount", swap.makerSendAmount.trim()],
+    ["makerSendAmount", normalizeSwapSeedAmount(swap.makerSendAmount)],
     ["takerAddress", new Address(swap.takerAddress).toString()],
     ["takerSendTokenAddress", new Address(swap.takerSendTokenAddress).toString()],
-    ["takerSendAmount", swap.takerSendAmount.trim()],
+    ["takerSendAmount", normalizeSwapSeedAmount(swap.takerSendAmount)],
   ]);
   const seedBytes = textEncoder.encode(seedFields);
   const seedMaterial = new Uint8Array(deterministicSeedPrefix.length + seedBytes.length + 1);
@@ -85,6 +85,15 @@ function deterministicSeed(owner: Address, swap: VectorSwapSeedConfig): Uint8Arr
   seedMaterial[seedMaterial.length - 1] = 1;
   seed.set(sha256(seedMaterial).slice(0, 16), 32);
   return seed;
+}
+
+function normalizeSwapSeedAmount(amount: string) {
+  const trimmed = amount.trim();
+  if (!/^\d+(\.\d+)?$/.test(trimmed)) throw new Error(`Invalid swap seed amount: ${amount}`);
+  const [wholePart = "0", fractionPart = ""] = trimmed.split(".");
+  const whole = wholePart.replace(/^0+(?=\d)/, "");
+  const fraction = fractionPart.replace(/0+$/, "");
+  return fraction ? `${whole}.${fraction}` : whole;
 }
 
 export function vectorIdentity(publicKey: Uint8Array): Uint8Array {

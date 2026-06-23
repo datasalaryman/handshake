@@ -96,9 +96,9 @@ Optionally fund your Surfnet maker and taker accounts in terminal 2:
 bun run surfnet:fund --case-1|--case-2|--case-3 <maker-wallet-address> <taker-wallet-address>
 ```
 
-This airdrops local SOL to both wallets and funds any non-SOL source token accounts needed for the swap. It uses Surfpool cheatcodes against local Surfnet only; it does not clone or create local mints.
+This airdrops local SOL to both wallets and funds any non-SOL source token accounts needed for the swap. It reads mint decimals from Surfnet and converts the configured UI amounts into token base units before funding. It uses Surfpool cheatcodes against local Surfnet only; it does not clone or create local mints.
 
-The maker Vector PDA is derived from the full swap configuration. `surfnet:fund` assumes the UI amount fields will be `10` for both sides unless overridden with `SURFNET_MAKER_SEND_AMOUNT` and `SURFNET_TAKER_SEND_AMOUNT`.
+`surfnet:fund` assumes the UI amount fields will be `10` for both sides unless overridden with `SURFNET_MAKER_SEND_AMOUNT` and `SURFNET_TAKER_SEND_AMOUNT`. These values should match the amounts you enter in the app so the source token accounts hold the expected balances.
 
 Examples:
 
@@ -113,7 +113,7 @@ bun run surfnet:fund --case-2 <maker-wallet-address> <taker-wallet-address>
 bun run surfnet:fund --case-3 <maker-wallet-address> <taker-wallet-address>
 ```
 
-When a side uses wrapped SOL, the app uses native SOL from that wallet and wraps only the required amount during the signed flow. When the maker uses a non-SOL token, `surfnet:fund` funds the maker Vector PDA token account because that is the token authority used by the swap.
+When a side uses wrapped SOL, the app uses native SOL from that wallet and wraps only the required amount during the signed flow. When the maker uses a non-SOL token, `surfnet:fund` funds the maker wallet source token account, and the maker prep transaction creates the maker Vector PDA ATA and transfers the required amount into it.
 
 Start the app in terminal 3:
 
