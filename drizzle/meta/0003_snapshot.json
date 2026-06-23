@@ -1,0 +1,142 @@
+{
+  "id": "51f85d11-3f7f-46a2-8b34-bd3abbedb0f0",
+  "prevId": "1c5b5b82-8456-48b4-a440-7012b6ccd66c",
+  "version": "7",
+  "dialect": "postgresql",
+  "tables": {
+    "public.handshake_swap_offers": {
+      "name": "handshake_swap_offers",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "cluster_id": {
+          "name": "cluster_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "maker_address": {
+          "name": "maker_address",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "maker_send_token_address": {
+          "name": "maker_send_token_address",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "maker_send_amount": {
+          "name": "maker_send_amount",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "taker_address": {
+          "name": "taker_address",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "taker_send_token_address": {
+          "name": "taker_send_token_address",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "taker_send_amount": {
+          "name": "taker_send_amount",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "vector_signature": {
+          "name": "vector_signature",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "maker_proof_signature": {
+          "name": "maker_proof_signature",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "maker_preparation_signature": {
+          "name": "maker_preparation_signature",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "status": {
+          "name": "status",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "taker_preparation_signature": {
+          "name": "taker_preparation_signature",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "submitted_signature": {
+          "name": "submitted_signature",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "is_revoked": {
+          "name": "is_revoked",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "default": false
+        },
+        "maker_revocation_preparation_signature": {
+          "name": "maker_revocation_preparation_signature",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "maker_revocation_signature": {
+          "name": "maker_revocation_signature",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    }
+  },
+  "enums": {},
+  "schemas": {},
+  "sequences": {},
+  "roles": {},
+  "policies": {},
+  "views": {},
+  "_meta": {
+    "columns": {},
+    "schemas": {},
+    "tables": {}
+  }
+}

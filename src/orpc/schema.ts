@@ -1,4 +1,4 @@
-import { pgTable, text, timestamp, uuid } from "drizzle-orm/pg-core";
+import { boolean, pgTable, text, timestamp, uuid } from "drizzle-orm/pg-core";
 import { z } from "zod";
 
 export const swapOffers = pgTable("handshake_swap_offers", {
@@ -16,6 +16,9 @@ export const swapOffers = pgTable("handshake_swap_offers", {
   status: text("status", { enum: ["maker_signed", "submitted"] }).notNull(),
   takerPreparationSignature: text("taker_preparation_signature"),
   submittedSignature: text("submitted_signature"),
+  isRevoked: boolean("is_revoked").notNull().default(false),
+  makerRevocationPreparationSignature: text("maker_revocation_preparation_signature"),
+  makerRevocationSignature: text("maker_revocation_signature"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
 
@@ -39,6 +42,9 @@ export type SwapOffer = {
   createdAt: string;
   takerPreparationSignature?: string;
   submittedSignature?: string;
+  isRevoked: boolean;
+  makerRevocationPreparationSignature?: string;
+  makerRevocationSignature?: string;
 };
 
 export const jupiterTokenSchema = z.object({

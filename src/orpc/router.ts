@@ -12,6 +12,12 @@ const markSwapSubmittedInput = z.object({
   submittedSignature: nonEmptyString,
 });
 
+const markSwapRevokedInput = z.object({
+  id: nonEmptyString,
+  makerRevocationPreparationSignature: z.string().trim().optional(),
+  makerRevocationSignature: nonEmptyString,
+});
+
 export const swapOffersRouter = {
   create: os
     .input(z.object({
@@ -53,6 +59,15 @@ export const swapOffersRouter = {
       status: "submitted",
       takerPreparationSignature: input.takerPreparationSignature,
       submittedSignature: input.submittedSignature,
+    }).where(eq(swapOffers.id, input.id)).returning();
+
+    return mapSwapOffer(rows[0]);
+  }),
+  markRevoked: os.input(markSwapRevokedInput).handler(async ({ input }) => {
+    const rows = await getDb().update(swapOffers).set({
+      isRevoked: true,
+      makerRevocationPreparationSignature: input.makerRevocationPreparationSignature,
+      makerRevocationSignature: input.makerRevocationSignature,
     }).where(eq(swapOffers.id, input.id)).returning();
 
     return mapSwapOffer(rows[0]);
@@ -109,5 +124,8 @@ function mapSwapOffer(row: SwapOfferRow | undefined): SwapOffer {
     createdAt: row.createdAt.toISOString(),
     takerPreparationSignature: row.takerPreparationSignature ?? undefined,
     submittedSignature: row.submittedSignature ?? undefined,
+    isRevoked: row.isRevoked,
+    makerRevocationPreparationSignature: row.makerRevocationPreparationSignature ?? undefined,
+    makerRevocationSignature: row.makerRevocationSignature ?? undefined,
   };
 }
