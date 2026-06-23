@@ -37,6 +37,7 @@ export function TakerPanel({ swapId }: { swapId: string }) {
     queryKey: ["swapOffers", swapId, takerAddressValue],
     queryFn: () => orpc.swapOffers.get({ id: swapId, takerAddress: takerAddressValue }),
     enabled: Boolean(takerAddressValue),
+    refetchInterval: (query) => query.state.data?.isRevoked || query.state.data?.status === "submitted" ? false : 5_000,
   });
   const loadedOffer = swapOfferQuery.data;
   const tokenMetadataQuery = useQuery({
@@ -62,6 +63,8 @@ export function TakerPanel({ swapId }: { swapId: string }) {
   const connectedWalletMatchesTaker = Boolean(loadedOffer && takerAddressValue === loadedOffer.takerAddress);
   const takerPreparationSignature = loadedOffer?.takerPreparationSignature;
   const submittedSignature = loadedOffer?.submittedSignature;
+  const makerRevocationPreparationSignature = loadedOffer?.makerRevocationPreparationSignature;
+  const makerRevocationSignature = loadedOffer?.makerRevocationSignature;
   const loadError = swapOfferQuery.error ? "Connected wallet does not match the intended taker for this handshake." : undefined;
   const walletAccessError = !isConnected ? "Wallet not connected." : loadError;
   const displayStatus = status ?? (swapOfferQuery.isLoading ? "Loading maker-signed swap offer..." : loadedOffer ? "Loaded maker-signed swap offer." : undefined);
@@ -116,7 +119,7 @@ export function TakerPanel({ swapId }: { swapId: string }) {
       await simulateTransaction(connection, tx);
       const submittedSignature = await signAndSendWalletTransaction(connectedWalletName, tx, cluster, connection);
       const updatedOffer = await orpc.swapOffers.markSubmitted({ id: loadedOffer.id, takerPreparationSignature, submittedSignature });
-      queryClient.setQueryData(["swapOffers", swapId], updatedOffer);
+      queryClient.setQueryData(["swapOffers", swapId, takerAddressValue], updatedOffer);
       setStatus(undefined);
     } catch (error) {
       setError(error instanceof Error ? error.message : "Could not execute swap.");
@@ -148,21 +151,34 @@ export function TakerPanel({ swapId }: { swapId: string }) {
 
       {walletAccessError ? <p className="mt-5 rounded-2xl border border-red-300/20 bg-red-300/10 p-4 text-sm text-red-100">{walletAccessError}</p> : null}
 
-      {connectedWalletMatchesTaker ? <TakerSwapSummary offer={loadedOffer} makerSendToken={tokenMetadataQuery.data?.makerSendToken} takerSendToken={tokenMetadataQuery.data?.takerSendToken} isLoadingTokens={tokenMetadataQuery.isFetching} tokenError={tokenMetadataQuery.error} copiedTokenAddress={copiedTokenAddress} onCopyTokenAddress={(tokenAddress) => {
+      {connectedWalletMatchesTaker && loadedOffer?.isRevoked ? <RevokedHandshakeNotice offer={loadedOffer} /> : null}
+
+      {connectedWalletMatchesTaker && !loadedOffer?.isRevoked ? <TakerSwapSummary offer={loadedOffer} makerSendToken={tokenMetadataQuery.data?.makerSendToken} takerSendToken={tokenMetadataQuery.data?.takerSendToken} isLoadingTokens={tokenMetadataQuery.isFetching} tokenError={tokenMetadataQuery.error} copiedTokenAddress={copiedTokenAddress} onCopyTokenAddress={(tokenAddress) => {
         void navigator.clipboard.writeText(tokenAddress);
         setCopiedTokenAddress(tokenAddress);
       }} /> : null}
 
       {connectedWalletMatchesTaker ? <div className="mt-5 flex flex-col gap-3 sm:flex-row">
-        <ActionButton disabled={busy || !isConnected || swapOfferQuery.isLoading || !loadedOffer || loadedOffer.status === "submitted"} onClick={() => void executeLoadedSwap()}>Take swap</ActionButton>
+        {!loadedOffer?.isRevoked ? <ActionButton disabled={busy || !isConnected || swapOfferQuery.isLoading || !loadedOffer || loadedOffer.status === "submitted"} onClick={() => void executeLoadedSwap()}>Take swap</ActionButton> : null}
         {loadedOffer?.makerProofSignature ? <SolanaExplorerButton signature={loadedOffer.makerProofSignature} cluster={cluster} label="Maker Init" /> : null}
         {loadedOffer?.makerPreparationSignature ? <SolanaExplorerButton signature={loadedOffer.makerPreparationSignature} cluster={cluster} label="Maker Prep" /> : null}
         {takerPreparationSignature ? <SolanaExplorerButton signature={takerPreparationSignature} cluster={cluster} label="Taker Prep" /> : null}
         {submittedSignature ? <SolanaExplorerButton signature={submittedSignature} cluster={cluster} label="Vector Action" /> : null}
+        {makerRevocationPreparationSignature ? <SolanaExplorerButton signature={makerRevocationPreparationSignature} cluster={cluster} label="Revoke Prep" /> : null}
+        {makerRevocationSignature ? <SolanaExplorerButton signature={makerRevocationSignature} cluster={cluster} label="Revoked" /> : null}
       </div> : null}
 
       {displayStatus ? <p className="mt-4 rounded-2xl border border-emerald-300/20 bg-emerald-300/10 p-4 text-sm text-emerald-100">{displayStatus}</p> : null}
       {displayError ? <p className="mt-4 rounded-2xl border border-red-300/20 bg-red-300/10 p-4 text-sm text-red-100">{displayError}</p> : null}
+    </div>
+  );
+}
+
+function RevokedHandshakeNotice({ offer }: { offer: SwapOffer }) {
+  return (
+    <div className="mt-5 rounded-2xl border border-amber-300/25 bg-amber-300/10 p-4 text-sm text-amber-50">
+      <p className="font-semibold">This handshake has been revoked.</p>
+      <p className="mt-2 text-amber-100/80">Maker {abbreviateAddress(offer.makerAddress)} closed the Vector escrow and this swap can no longer be taken.</p>
     </div>
   );
 }

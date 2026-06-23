@@ -1,5 +1,6 @@
 import {
   findAssociatedTokenPda,
+  getCloseAccountInstruction,
   getCreateAssociatedTokenIdempotentInstruction,
   getMintDecoder,
   getSyncNativeInstruction,
@@ -110,6 +111,31 @@ export async function buildSwapPreparationInstructions(connection: Connection, m
   return createSwapSetupInstructions(connection, makerAddress, swap);
 }
 
+export async function buildHandshakeRevocation(connection: Connection, makerAddress: Address, identity: Uint8Array, form: SwapFormState | SwapOffer) {
+  const swap = await resolveSwapAccounts(connection, makerAddress, identity, form);
+  const vectorAccount = await connection.getAccountInfo(swap.makerVectorPda);
+  if (!vectorAccount?.data || vectorAccount.data.length < 33) throw new Error("Maker Vector account is not initialized on this cluster.");
+
+  const refundsWrappedSol = swap.makerSendMint.toString() === wrappedSolMintAddress;
+  const makerRefundDestination = refundsWrappedSol ? undefined : await getAssociatedTokenAddress(swap.makerSendMint, makerAddress);
+  const setupIxs = makerRefundDestination ? await createMissingAtaInstructions(connection, makerAddress, [
+    { ata: makerRefundDestination, owner: makerAddress, mint: swap.makerSendMint },
+  ]) : [];
+  const escrowAccount = await connection.getAccountInfo(swap.makerSendSource);
+  const subInstructions: TransactionInstruction[] = [];
+
+  if (escrowAccount?.data) {
+    const escrowAmount = getTokenDecoder().decode(escrowAccount.data).amount;
+    if (escrowAmount > 0n && makerRefundDestination) {
+      subInstructions.push(createTransferInstruction(swap.makerSendSource, makerRefundDestination, swap.makerVectorPda, escrowAmount));
+    }
+    subInstructions.push(createCloseTokenAccountInstruction(swap.makerSendSource, makerAddress, swap.makerVectorPda));
+  }
+
+  subInstructions.push(createCloseSubinstruction(identity, makerAddress));
+  return { setupIxs, passthroughIx: createPassthroughInstruction(identity, subInstructions) };
+}
+
 export async function getVectorNonce(connection: Connection, identity: Uint8Array) {
   const [makerVectorPda] = findVectorPda(identity);
   const vectorAccount = await connection.getAccountInfo(makerVectorPda);
@@ -213,6 +239,10 @@ function createTransferInstruction(source: Address, destination: Address, owner:
 
 function createSyncNativeInstruction(account: Address) {
   return toWeb3Instruction(getSyncNativeInstruction({ account: toKitAddress(account) }));
+}
+
+function createCloseTokenAccountInstruction(account: Address, destination: Address, owner: Address) {
+  return toWeb3Instruction(getCloseAccountInstruction({ account: toKitAddress(account), destination: toKitAddress(destination), owner: toTransactionSigner(owner) }));
 }
 
 async function assertVectorProgramDeployed(connection: Connection, cluster: AppCluster) {

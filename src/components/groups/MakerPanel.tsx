@@ -1,4 +1,4 @@
-import { Address, Connection } from "@solana/web3.js";
+import { Address, Connection, Transaction } from "@solana/web3.js";
 import { useWalletUi } from "@wallet-ui/react";
 import { ArrowUpDown, Check, Copy } from "lucide-react";
 import { useEffect, useState } from "react";
@@ -13,9 +13,10 @@ import { SolanaExplorerButton } from "@/components/units/SolanaExplorerButton";
 import { SwapSideCard } from "@/components/units/SwapSideCard";
 import { TokenPickerButton } from "@/components/units/TokenPickerButton";
 import { orpc } from "@/lib/orpc";
-import { buildSwapAuthorization, encodeVectorAuthorization, getVectorNonce, prepareMakerVectorAccount } from "@/lib/swap-transactions";
+import { buildHandshakeRevocation, buildSwapAuthorization, encodeVectorAuthorization, getVectorNonce, prepareMakerVectorAccount, signAndSendWalletTransaction, simulateTransaction } from "@/lib/swap-transactions";
 import { createDeterministicKeypair, signAdvanceInstruction, vectorIdentity } from "@/lib/vector";
 import { getCurrentWalletAddress } from "@/lib/wallet-adapters";
+import type { SwapOffer } from "@/orpc/schema";
 import type { SwapFormState, TokenSearchResult } from "@/lib/wallet-types";
 
 const solToken: TokenSearchResult = {
@@ -58,8 +59,11 @@ export function MakerPanel() {
   const [takerSendToken, setTakerSendToken] = useState<TokenSearchResult | undefined>(usdcToken);
   const [tokenPickerMode, setTokenPickerMode] = useState<"maker-send" | "taker-send">();
   const [generatedLink, setGeneratedLink] = useState<string>();
+  const [generatedOffer, setGeneratedOffer] = useState<SwapOffer>();
   const [makerProofSignature, setMakerProofSignature] = useState<string>();
   const [makerPreparationSignature, setMakerPreparationSignature] = useState<string>();
+  const [makerRevocationPreparationSignature, setMakerRevocationPreparationSignature] = useState<string>();
+  const [makerRevocationSignature, setMakerRevocationSignature] = useState<string>();
   const [copiedLink, setCopiedLink] = useState(false);
   const [status, setStatus] = useState<string>();
   const [error, setError] = useState<string>();
@@ -94,8 +98,11 @@ export function MakerPanel() {
 
   useEffect(() => {
     setGeneratedLink(undefined);
+    setGeneratedOffer(undefined);
     setMakerProofSignature(undefined);
     setMakerPreparationSignature(undefined);
+    setMakerRevocationPreparationSignature(undefined);
+    setMakerRevocationSignature(undefined);
     setCopiedLink(false);
     setStatus(undefined);
   }, [makerAddressValue, form.makerSendTokenAddress, form.makerSendAmount, form.takerAddress, form.takerSendTokenAddress, form.takerSendAmount]);
@@ -133,11 +140,55 @@ export function MakerPanel() {
 
       const link = new URL(`/swap/${offer.id}`, window.location.origin);
       setGeneratedLink(link.toString());
+      setGeneratedOffer(offer);
       setMakerProofSignature(makerSetup.makerProofSignature);
       setMakerPreparationSignature(makerSetup.makerPreparationSignature);
       setStatus("Copy the swap link and send it to the other party so they can complete the handshake.");
     } catch (error) {
       setError(error instanceof Error ? error.message : "Could not create maker-signed swap link.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function revokeHandshake() {
+    if (!generatedOffer) throw new Error("Create a swap link before revoking it.");
+    if (!makerAddressValue) throw new Error("Connect the maker wallet first.");
+    setBusy(true);
+    setError(undefined);
+    setStatus("Building revocation transaction...");
+
+    try {
+      const makerAddress = new Address(makerAddressValue);
+      const connection = new Connection(cluster.url, "confirmed");
+      const vectorKeypair = createDeterministicKeypair(makerAddress, generatedOffer);
+      const identity = vectorIdentity(vectorKeypair.publicKey);
+      const { setupIxs, passthroughIx } = await buildHandshakeRevocation(connection, makerAddress, identity, generatedOffer);
+      let revocationPreparationSignature: string | undefined;
+
+      if (setupIxs.length > 0) {
+        setStatus("Preparing maker refund token account...");
+        const setupTx = new Transaction({ ...(await connection.getLatestBlockhash()), feePayer: makerAddress }).add(...setupIxs);
+        await simulateTransaction(connection, setupTx);
+        revocationPreparationSignature = await signAndSendWalletTransaction(connectedWalletName, setupTx, cluster, connection);
+      }
+
+      setStatus("Revoking handshake and closing escrow accounts...");
+      const advanceIx = signAdvanceInstruction(vectorKeypair, await getVectorNonce(connection, identity), [], [passthroughIx], makerAddress);
+      const tx = new Transaction({ ...(await connection.getLatestBlockhash()), feePayer: makerAddress }).add(advanceIx, passthroughIx);
+      await simulateTransaction(connection, tx);
+      const revocationSignature = await signAndSendWalletTransaction(connectedWalletName, tx, cluster, connection);
+      const updatedOffer = await orpc.swapOffers.markRevoked({
+        id: generatedOffer.id,
+        makerRevocationPreparationSignature: revocationPreparationSignature,
+        makerRevocationSignature: revocationSignature,
+      });
+      setGeneratedOffer(updatedOffer);
+      setMakerRevocationPreparationSignature(revocationPreparationSignature);
+      setMakerRevocationSignature(revocationSignature);
+      setStatus("Handshake revoked. The taker link now shows this offer as revoked.");
+    } catch (error) {
+      setError(error instanceof Error ? error.message : "Could not revoke handshake.");
     } finally {
       setBusy(false);
     }
@@ -164,6 +215,7 @@ export function MakerPanel() {
   const takerAddressMatchesMaker = Boolean(makerAddressValue && form.takerAddress.trim() === makerAddressValue);
   const takerAddressError = takerAddressMatchesMaker ? "Taker address must be different from the maker address." : undefined;
   const canCreateSwapLink = Boolean(form.takerAddress.trim() && form.makerSendAmount.trim() && form.takerSendAmount.trim() && !takerAddressError);
+  const canRevokeHandshake = Boolean(generatedOffer && makerProofSignature && makerPreparationSignature && !generatedOffer.isRevoked);
 
   return (
     <div className="rounded-3xl border border-white/10 bg-white/[0.04] p-5 shadow-2xl shadow-violet-950/30 backdrop-blur sm:p-6">
@@ -222,6 +274,9 @@ export function MakerPanel() {
           {copiedLink ? <Check className="size-4" aria-hidden="true" /> : <Copy className="size-4" aria-hidden="true" />}
           {copiedLink ? "Copied" : "Copy Swap Link"}
         </button> : null}
+        {generatedOffer ? <ActionButton disabled={busy || !isConnected || !canRevokeHandshake} onClick={() => void revokeHandshake()}>Revoke Handshake</ActionButton> : null}
+        {makerRevocationPreparationSignature ? <SolanaExplorerButton signature={makerRevocationPreparationSignature} cluster={cluster} label="Revoke Prep" /> : null}
+        {makerRevocationSignature ? <SolanaExplorerButton signature={makerRevocationSignature} cluster={cluster} label="Revoke" /> : null}
       </div>
 
       {status ? <p className="mt-4 rounded-2xl border border-emerald-300/20 bg-emerald-300/10 p-4 text-sm text-emerald-100">{status}</p> : null}
