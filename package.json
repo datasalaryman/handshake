@@ -2,6 +2,7 @@
   "name": "handshake",
   "version": "0.1.0",
   "description": "Peer-to-peer token swaps on Solana",
+  "license": "MIT",
   "private": true,
   "type": "module",
   "scripts": {
