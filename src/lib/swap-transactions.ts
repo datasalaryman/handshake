@@ -122,18 +122,21 @@ export async function buildHandshakeRevocation(connection: Connection, makerAddr
     { ata: makerRefundDestination, owner: makerAddress, mint: swap.makerSendMint },
   ]) : [];
   const escrowAccount = await connection.getAccountInfo(swap.makerSendSource);
-  const subInstructions: TransactionInstruction[] = [];
+  const assetReturnSubInstructions: TransactionInstruction[] = [];
 
   if (escrowAccount?.data) {
     const escrowAmount = getTokenDecoder().decode(escrowAccount.data).amount;
     if (escrowAmount > 0n && makerRefundDestination) {
-      subInstructions.push(createTransferInstruction(swap.makerSendSource, makerRefundDestination, swap.makerVectorPda, escrowAmount));
+      assetReturnSubInstructions.push(createTransferInstruction(swap.makerSendSource, makerRefundDestination, swap.makerVectorPda, escrowAmount));
     }
-    subInstructions.push(createCloseTokenAccountInstruction(swap.makerSendSource, makerAddress, swap.makerVectorPda));
+    assetReturnSubInstructions.push(createCloseTokenAccountInstruction(swap.makerSendSource, makerAddress, swap.makerVectorPda));
   }
 
-  subInstructions.push(createCloseSubinstruction(identity, makerAddress));
-  return { setupIxs, passthroughIx: createPassthroughInstruction(identity, subInstructions) };
+  return {
+    setupIxs,
+    assetReturnPassthroughIx: assetReturnSubInstructions.length > 0 ? createPassthroughInstruction(identity, assetReturnSubInstructions) : undefined,
+    closeVectorPassthroughIx: createPassthroughInstruction(identity, [createCloseSubinstruction(identity, makerAddress)]),
+  };
 }
 
 export async function getVectorNonce(connection: Connection, identity: Uint8Array) {

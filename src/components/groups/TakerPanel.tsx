@@ -143,19 +143,20 @@ export function TakerPanel({ swapId }: { swapId: string }) {
       const connection = new Connection(cluster.url, "confirmed");
       const vectorKeypair = createDeterministicKeypair(makerAddress, loadedOffer);
       const identity = vectorIdentity(vectorKeypair.publicKey);
-      const { setupIxs, passthroughIx } = await buildHandshakeRevocation(connection, makerAddress, identity, loadedOffer);
+      const { setupIxs, assetReturnPassthroughIx, closeVectorPassthroughIx } = await buildHandshakeRevocation(connection, makerAddress, identity, loadedOffer);
       let revocationPreparationSignature: string | undefined;
 
-      if (setupIxs.length > 0) {
-        setStatus("Preparing maker refund token account...");
-        const setupTx = new Transaction({ ...(await connection.getLatestBlockhash()), feePayer: makerAddress }).add(...setupIxs);
+      if (assetReturnPassthroughIx) {
+        setStatus("Returning maker escrow assets...");
+        const advanceIx = signAdvanceInstruction(vectorKeypair, await getVectorNonce(connection, identity), setupIxs, [assetReturnPassthroughIx], makerAddress);
+        const setupTx = new Transaction({ ...(await connection.getLatestBlockhash()), feePayer: makerAddress }).add(...setupIxs, advanceIx, assetReturnPassthroughIx);
         await simulateTransaction(connection, setupTx);
         revocationPreparationSignature = await signAndSendWalletTransaction(connectedWalletName, setupTx, cluster, connection);
       }
 
-      setStatus("Revoking handshake and closing escrow accounts...");
-      const advanceIx = signAdvanceInstruction(vectorKeypair, await getVectorNonce(connection, identity), [], [passthroughIx], makerAddress);
-      const tx = new Transaction({ ...(await connection.getLatestBlockhash()), feePayer: makerAddress }).add(advanceIx, passthroughIx);
+      setStatus("Revoking handshake and closing Vector account...");
+      const advanceIx = signAdvanceInstruction(vectorKeypair, await getVectorNonce(connection, identity), [], [closeVectorPassthroughIx], makerAddress);
+      const tx = new Transaction({ ...(await connection.getLatestBlockhash()), feePayer: makerAddress }).add(advanceIx, closeVectorPassthroughIx);
       await simulateTransaction(connection, tx);
       const revocationSignature = await signAndSendWalletTransaction(connectedWalletName, tx, cluster, connection);
       const updatedOffer = await orpc.swapOffers.markRevoked({
